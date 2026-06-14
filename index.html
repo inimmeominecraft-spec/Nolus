@@ -98,11 +98,13 @@ html, body {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 16px;
-  box-shadow: 0 2px 20px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  color: rgba(255, 255, 255, 0.7);
   opacity: 0;
   transform: scale(0.85);
   transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
@@ -125,7 +127,7 @@ html, body {
 
 .fm-divider {
   height: 1px;
-  background: rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.1);
   margin: 0 -2px;
 }
 
@@ -135,14 +137,14 @@ html, body {
   min-width: 26px;
   border-radius: 50%;
   border: 2.5px solid transparent;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
   cursor: pointer;
   transition: transform 0.1s;
   padding: 0;
 }
 
 .fm-color:active { transform: scale(0.88); }
-.fm-color.active { border-color: #007aff; box-shadow: 0 0 0 1.5px rgba(0,122,255,0.25); }
+.fm-color.active { border-color: #007aff; box-shadow: 0 0 0 1.5px rgba(0,122,255,0.4); }
 
 .fm-custom-wrap {
   width: 26px;
@@ -152,7 +154,7 @@ html, body {
   overflow: hidden;
   position: relative;
   background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
-  border: 1.5px solid rgba(0,0,0,0.08);
+  border: 1.5px solid rgba(255,255,255,0.15);
 }
 
 .fm-custom-wrap input {
@@ -180,18 +182,18 @@ html, body {
 }
 
 .fm-size.active {
-  background: rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.12);
 }
 
 .fm-size-dot {
   border-radius: 50%;
-  background: #333;
+  background: rgba(255,255,255,0.85);
 }
 
 .fm-sep {
   width: 1px;
   height: 20px;
-  background: rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.12);
   margin: 0 2px;
 }
 
@@ -206,20 +208,20 @@ html, body {
   border-radius: 7px;
   font-size: 13px;
   font-weight: 500;
-  color: #333;
+  color: rgba(255,255,255,0.7);
   cursor: pointer;
   transition: background 0.12s;
   white-space: nowrap;
 }
 
 .fm-tool.active {
-  background: rgba(0,122,255,0.1);
-  color: #007aff;
+  background: rgba(0,122,255,0.2);
+  color: #4a9eff;
 }
 
 .fm-tool[data-tool="eraser"].active {
-  background: rgba(255,59,48,0.1);
-  color: #ff3b30;
+  background: rgba(255,59,48,0.2);
+  color: #ff6b6b;
 }
 
 .fm-tool svg {
@@ -240,14 +242,14 @@ html, body {
   transition: background 0.12s;
 }
 
-.fm-action:active:not(:disabled) { background: rgba(0,0,0,0.06); }
+.fm-action:active:not(:disabled) { background: rgba(255,255,255,0.12); }
 .fm-action:disabled { opacity: 0.25; }
 .fm-action svg { width: 16px; height: 16px; }
 
 .fm-clear {
   font-size: 12px;
   font-weight: 500;
-  color: #ff3b30;
+  color: #ff6b6b;
   width: auto;
   padding: 0 8px;
 }
@@ -292,11 +294,13 @@ html, body {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.15), 0 0 0 0.5px rgba(0,0,0,0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  color: rgba(255, 255, 255, 0.7);
   opacity: 0;
   transform: scale(0.9) translateY(4px);
   transition: opacity 0.12s ease, transform 0.12s ease;
@@ -322,7 +326,7 @@ html, body {
 #size-popup input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
-  background: rgba(0,0,0,0.12);
+  background: rgba(255,255,255,0.15);
 }
 
 #size-popup input[type="range"]::-webkit-slider-thumb {
@@ -337,7 +341,7 @@ html, body {
 #size-popup .sp-label {
   font-size: 12px;
   font-weight: 600;
-  color: #333;
+  color: rgba(255,255,255,0.7);
   min-width: 24px;
   text-align: center;
 }
@@ -929,12 +933,7 @@ if (!canvasId) {
   var snapAnimating = false;
   var penIsDown = false;
   var snapDragActive = false;
-  var snapDragAnchor = null;
   var snapDragShapeIdx = -1;
-  var snapDragOrigBounds = null;
-  var snapDragOrigP1 = null;
-  var snapDragOrigP2 = null;
-  var snapDragOrigTri = null;
 
   // Edge glow state
   var edgeGlowEls = null;
@@ -988,8 +987,6 @@ if (!canvasId) {
       data.bounds = s.bounds;
       if (s.p1) data.p1 = s.p1;
       if (s.p2) data.p2 = s.p2;
-      if (s.triPoints) data.triPoints = s.triPoints;
-      if (s.arcCenter) { data.arcCenter = s.arcCenter; data.arcRadius = s.arcRadius; data.arcStart = s.arcStart; data.arcEnd = s.arcEnd; data.arcCcw = s.arcCcw; }
     } else {
       data.points = s.points;
     }
@@ -1048,13 +1045,7 @@ if (!canvasId) {
               baseSize: s.baseSize,
               bounds: s.bounds,
               p1: s.p1 || null,
-              p2: s.p2 || null,
-              triPoints: s.triPoints || null,
-              arcCenter: s.arcCenter || null,
-              arcRadius: s.arcRadius || 0,
-              arcStart: s.arcStart || 0,
-              arcEnd: s.arcEnd || 0,
-              arcCcw: s.arcCcw || false
+              p2: s.p2 || null
             });
           } else {
             strokes.push({
@@ -1705,53 +1696,6 @@ if (!canvasId) {
     return ptDist(p, {x: a.x+t*dx, y: a.y+t*dy});
   }
 
-  function detectCorners(resampled) {
-    var w = Math.max(4, Math.floor(resampled.length / 10));
-    var angleData = [];
-    for (var i = w; i < resampled.length - w; i++) {
-      var before = resampled[i-w], at = resampled[i], after = resampled[i+w];
-      var v1x = before.x-at.x, v1y = before.y-at.y;
-      var v2x = after.x-at.x, v2y = after.y-at.y;
-      var dot = v1x*v2x + v1y*v2y;
-      var cross = v1x*v2y - v1y*v2x;
-      angleData.push({idx: i, angle: Math.abs(Math.atan2(cross, dot))});
-    }
-    var threshold = Math.PI * 0.65;
-    var corners = [];
-    for (var i = 1; i < angleData.length - 1; i++) {
-      if (angleData[i].angle < threshold &&
-          angleData[i].angle <= angleData[i-1].angle &&
-          angleData[i].angle <= angleData[i+1].angle) {
-        if (corners.length === 0 || angleData[i].idx - corners[corners.length-1] > resampled.length / 8) {
-          corners.push(angleData[i].idx);
-        }
-      }
-    }
-    return corners;
-  }
-
-  function fitCircle(pts) {
-    var n = pts.length;
-    var sx = 0, sy = 0;
-    for (var i = 0; i < n; i++) { sx += pts[i].x; sy += pts[i].y; }
-    var mx = sx / n, my = sy / n;
-    var suu = 0, suv = 0, svv = 0, suuu = 0, svvv = 0, suvv = 0, svuu = 0;
-    for (var i = 0; i < n; i++) {
-      var u = pts[i].x - mx, v = pts[i].y - my;
-      suu += u*u; suv += u*v; svv += v*v;
-      suuu += u*u*u; svvv += v*v*v; suvv += u*v*v; svuu += v*u*u;
-    }
-    var det = suu*svv - suv*suv;
-    if (Math.abs(det) < 1e-10) return null;
-    var uc = (0.5*(suuu+suvv)*svv - 0.5*(svvv+svuu)*suv) / det;
-    var vc = (0.5*(svvv+svuu)*suu - 0.5*(suuu+suvv)*suv) / det;
-    var cx = uc + mx, cy = vc + my;
-    var r = 0;
-    for (var i = 0; i < n; i++) r += Math.sqrt((pts[i].x-cx)*(pts[i].x-cx) + (pts[i].y-cy)*(pts[i].y-cy));
-    r /= n;
-    return {cx: cx, cy: cy, r: r};
-  }
-
   function recognizeShape(rawPoints) {
     if (rawPoints.length < 8) return null;
     var pts = rawPoints.map(function(p) { return {x: p.x, y: p.y}; });
@@ -1759,76 +1703,14 @@ if (!canvasId) {
     var bb = shapeBounds(resampled);
     if (bb.w < 15 && bb.h < 15) return null;
 
-    var totalLen = 0;
-    for (var i = 1; i < resampled.length; i++) totalLen += ptDist(resampled[i-1], resampled[i]);
-    var startEnd = ptDist(resampled[0], resampled[resampled.length-1]);
-    var isClosed = startEnd < totalLen * 0.2;
-
-    // Open shapes
-    if (!isClosed) {
-      var maxDev = 0;
-      var first = resampled[0], last = resampled[resampled.length-1];
-      for (var i = 0; i < resampled.length; i++) {
-        maxDev = Math.max(maxDev, ptToLineDist(resampled[i], first, last));
-      }
-      var span = ptDist(first, last);
-      if (span > 20 && maxDev / span < 0.1) {
-        return {type: 'line', bounds: bb, p1: {x:first.x, y:first.y}, p2: {x:last.x, y:last.y}};
-      }
-      // Arc detection: fit circle, check if points lie on it
-      if (span > 20) {
-        var fc = fitCircle(resampled);
-        if (fc && fc.r > 10) {
-          var maxArcDev = 0;
-          for (var i = 0; i < resampled.length; i++) {
-            var d = Math.abs(ptDist(resampled[i], {x:fc.cx, y:fc.cy}) - fc.r);
-            if (d > maxArcDev) maxArcDev = d;
-          }
-          if (maxArcDev / fc.r < 0.15) {
-            var startAngle = Math.atan2(first.y - fc.cy, first.x - fc.cx);
-            var endAngle = Math.atan2(last.y - fc.cy, last.x - fc.cx);
-            var midPt = resampled[Math.floor(resampled.length/2)];
-            var midAngle = Math.atan2(midPt.y - fc.cy, midPt.x - fc.cx);
-            var ccw = false;
-            var diff1 = (midAngle - startAngle + 4*Math.PI) % (2*Math.PI);
-            var diff2 = (endAngle - startAngle + 4*Math.PI) % (2*Math.PI);
-            if (diff1 > diff2) ccw = true;
-            return {type: 'arc', bounds: bb, arcCenter: {x:fc.cx, y:fc.cy}, arcRadius: fc.r, arcStart: startAngle, arcEnd: endAngle, arcCcw: ccw};
-          }
-        }
-      }
-      return null;
+    var first = resampled[0], last = resampled[resampled.length - 1];
+    var maxDev = 0;
+    for (var i = 0; i < resampled.length; i++) {
+      maxDev = Math.max(maxDev, ptToLineDist(resampled[i], first, last));
     }
-
-    // Closed shapes: detect corners first (before circle check)
-    var corners = detectCorners(resampled);
-
-    if (corners.length === 3) {
-      var triPts = corners.map(function(idx) { return {x: resampled[idx].x, y: resampled[idx].y}; });
-      return {type: 'triangle', bounds: bb, triPoints: triPts};
-    }
-    if (corners.length >= 4) {
-      return {type: 'rectangle', bounds: bb};
-    }
-
-    // No sharp corners → circle / ellipse
-    var cx = bb.x + bb.w/2, cy = bb.y + bb.h/2;
-    var hw = bb.w/2 || 1, hh = bb.h/2 || 1;
-    var dists = resampled.map(function(p) {
-      var nx = (p.x - cx) / hw, ny = (p.y - cy) / hh;
-      return Math.sqrt(nx*nx + ny*ny);
-    });
-    var avgD = 0;
-    for (var i = 0; i < dists.length; i++) avgD += dists[i];
-    avgD /= dists.length;
-    var variance = 0;
-    for (var i = 0; i < dists.length; i++) variance += (dists[i]-avgD)*(dists[i]-avgD);
-    variance /= dists.length;
-
-    if (variance < 0.08) {
-      var ar = bb.w / Math.max(1, bb.h);
-      if (ar > 0.75 && ar < 1.33) return {type: 'circle', bounds: bb};
-      return {type: 'ellipse', bounds: bb};
+    var span = ptDist(first, last);
+    if (span > 20 && maxDev / span < 0.1) {
+      return {type: 'line', bounds: bb, p1: {x: first.x, y: first.y}, p2: {x: last.x, y: last.y}};
     }
     return null;
   }
@@ -1836,6 +1718,7 @@ if (!canvasId) {
   // ── Shape Rendering ──
 
   function renderShapeStroke(c, stroke) {
+    if (stroke.shapeType !== 'line') return;
     c.strokeStyle = stroke.color;
     c.lineWidth = stroke.baseSize;
     c.lineCap = 'round';
@@ -1843,34 +1726,8 @@ if (!canvasId) {
     c.globalAlpha = 1;
     c.globalCompositeOperation = 'source-over';
     c.beginPath();
-
-    var b = stroke.bounds;
-    switch (stroke.shapeType) {
-      case 'line':
-        c.moveTo(stroke.p1.x, stroke.p1.y);
-        c.lineTo(stroke.p2.x, stroke.p2.y);
-        break;
-      case 'circle':
-        var r = Math.min(b.w, b.h) / 2;
-        c.arc(b.x + b.w/2, b.y + b.h/2, Math.max(1, r), 0, Math.PI * 2);
-        break;
-      case 'ellipse':
-        c.ellipse(b.x + b.w/2, b.y + b.h/2, Math.max(1, b.w/2), Math.max(1, b.h/2), 0, 0, Math.PI * 2);
-        break;
-      case 'rectangle':
-        c.rect(b.x, b.y, b.w, b.h);
-        break;
-      case 'triangle':
-        var tp = stroke.triPoints;
-        c.moveTo(tp[0].x, tp[0].y);
-        c.lineTo(tp[1].x, tp[1].y);
-        c.lineTo(tp[2].x, tp[2].y);
-        c.closePath();
-        break;
-      case 'arc':
-        c.arc(stroke.arcCenter.x, stroke.arcCenter.y, Math.max(1, stroke.arcRadius), stroke.arcStart, stroke.arcEnd, stroke.arcCcw);
-        break;
-    }
+    c.moveTo(stroke.p1.x, stroke.p1.y);
+    c.lineTo(stroke.p2.x, stroke.p2.y);
     c.stroke();
   }
 
@@ -1878,57 +1735,9 @@ if (!canvasId) {
 
   function resizeSnapDragShape(worldX, worldY) {
     var shape = strokes[snapDragShapeIdx];
-    if (!shape) return;
-    var dx = worldX - snapDragAnchor.x;
-    var dy = worldY - snapDragAnchor.y;
-    var ob = snapDragOrigBounds;
-
-    if (shape.shapeType === 'line') {
-      var d1 = ptDist(snapDragAnchor, snapDragOrigP1);
-      var d2 = ptDist(snapDragAnchor, snapDragOrigP2);
-      if (d1 > d2) {
-        shape.p1 = {x: snapDragOrigP1.x + dx, y: snapDragOrigP1.y + dy};
-        shape.p2 = {x: snapDragOrigP2.x, y: snapDragOrigP2.y};
-      } else {
-        shape.p2 = {x: snapDragOrigP2.x + dx, y: snapDragOrigP2.y + dy};
-        shape.p1 = {x: snapDragOrigP1.x, y: snapDragOrigP1.y};
-      }
-      var pts = [shape.p1, shape.p2];
-      shape.bounds = shapeBounds(pts);
-    } else if (shape.shapeType === 'circle' || shape.shapeType === 'ellipse') {
-      var cx = ob.x + ob.w/2, cy = ob.y + ob.h/2;
-      var origR = Math.max(ob.w, ob.h) / 2;
-      var dragDist = Math.sqrt(dx*dx + dy*dy);
-      var sign = (dx * (worldX - cx) + dy * (worldY - cy)) > 0 ? 1 : -1;
-      var newR = Math.max(10, origR + sign * dragDist);
-      if (shape.shapeType === 'circle') {
-        shape.bounds = {x: cx - newR, y: cy - newR, w: newR*2, h: newR*2};
-      } else {
-        var rx = Math.max(10, ob.w/2 + Math.abs(dx) * (dx > 0 ? 1 : -1));
-        var ry = Math.max(10, ob.h/2 + Math.abs(dy) * (dy > 0 ? 1 : -1));
-        shape.bounds = {x: cx - rx, y: cy - ry, w: rx*2, h: ry*2};
-      }
-    } else if (shape.shapeType === 'rectangle') {
-      var cx = ob.x + ob.w/2, cy = ob.y + ob.h/2;
-      var nw = Math.max(10, ob.w + dx * (snapDragAnchor.x > cx ? 2 : -2));
-      var nh = Math.max(10, ob.h + dy * (snapDragAnchor.y > cy ? 2 : -2));
-      shape.bounds = {x: cx - nw/2, y: cy - nh/2, w: nw, h: nh};
-    } else if (shape.shapeType === 'triangle') {
-      var cx = (snapDragOrigTri[0].x + snapDragOrigTri[1].x + snapDragOrigTri[2].x) / 3;
-      var cy = (snapDragOrigTri[0].y + snapDragOrigTri[1].y + snapDragOrigTri[2].y) / 3;
-      var origDist = Math.sqrt((snapDragAnchor.x-cx)*(snapDragAnchor.x-cx) + (snapDragAnchor.y-cy)*(snapDragAnchor.y-cy)) || 1;
-      var curDist = Math.sqrt((worldX-cx)*(worldX-cx) + (worldY-cy)*(worldY-cy));
-      var scale = Math.max(0.1, curDist / origDist);
-      shape.triPoints = snapDragOrigTri.map(function(p) {
-        return {x: cx + (p.x - cx) * scale, y: cy + (p.y - cy) * scale};
-      });
-      shape.bounds = shapeBounds(shape.triPoints);
-    } else if (shape.shapeType === 'arc') {
-      var c = shape.arcCenter;
-      var origR = snapDragOrigBounds._arcRadius || shape.arcRadius;
-      var curDist = Math.sqrt((worldX-c.x)*(worldX-c.x) + (worldY-c.y)*(worldY-c.y));
-      shape.arcRadius = Math.max(10, curDist);
-    }
+    if (!shape || shape.shapeType !== 'line') return;
+    shape.p2 = {x: worldX, y: worldY};
+    shape.bounds = shapeBounds([shape.p1, shape.p2]);
   }
 
   // ── Snap Animation ──
@@ -1974,18 +1783,12 @@ if (!canvasId) {
 
     var shape = {
       tool: 'shape',
-      shapeType: result.type,
+      shapeType: 'line',
       color: currentStroke.color,
       baseSize: currentStroke.baseSize,
       bounds: result.bounds,
-      p1: result.p1 || null,
-      p2: result.p2 || null,
-      triPoints: result.triPoints || null,
-      arcCenter: result.arcCenter || null,
-      arcRadius: result.arcRadius || 0,
-      arcStart: result.arcStart || 0,
-      arcEnd: result.arcEnd || 0,
-      arcCcw: result.arcCcw || false
+      p1: result.p1,
+      p2: result.p2
     };
 
     var freehand = {
@@ -1995,7 +1798,6 @@ if (!canvasId) {
       points: currentStroke.points.slice()
     };
 
-    var anchorPos = screenToWorld(lastPenX, lastPenY);
     isDrawing = false;
     currentStroke = null;
     clearTimeout(holdTimer);
@@ -2009,12 +1811,6 @@ if (!canvasId) {
       if (penIsDown) {
         snapDragActive = true;
         snapDragShapeIdx = strokes.length - 1;
-        snapDragAnchor = anchorPos;
-        snapDragOrigBounds = {x: shape.bounds.x, y: shape.bounds.y, w: shape.bounds.w, h: shape.bounds.h};
-        if (shape.p1) snapDragOrigP1 = {x: shape.p1.x, y: shape.p1.y};
-        if (shape.p2) snapDragOrigP2 = {x: shape.p2.x, y: shape.p2.y};
-        if (shape.triPoints) snapDragOrigTri = shape.triPoints.map(function(p) { return {x:p.x, y:p.y}; });
-        if (shape.arcRadius) snapDragOrigBounds._arcRadius = shape.arcRadius;
       } else {
         saveStrokeToCloud(shape);
       }
@@ -2365,7 +2161,6 @@ if (!canvasId) {
     if (snapDragActive) {
       e.preventDefault();
       snapDragActive = false;
-      snapDragAnchor = null;
       snapDragShapeIdx = -1;
       saveAllStrokesToCloud();
       redrawAll();
@@ -2408,7 +2203,6 @@ if (!canvasId) {
     holdTimer = null;
     holdScreenAnchor = null;
     snapDragActive = false;
-    snapDragAnchor = null;
     snapDragShapeIdx = -1;
     hideEraserCursor();
   }
