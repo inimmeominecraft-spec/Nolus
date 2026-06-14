@@ -667,6 +667,21 @@ html, body {
   border-radius: 50%;
   background: currentColor;
 }
+
+/* Edge glow */
+.edge-glow {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+#edge-glow-top { top: 0; left: 0; right: 0; height: 30px; background: linear-gradient(to bottom, rgba(120, 255, 170, 0.25), transparent); }
+#edge-glow-bottom { bottom: 0; left: 0; right: 0; height: 30px; background: linear-gradient(to top, rgba(120, 255, 170, 0.25), transparent); }
+#edge-glow-left { top: 0; bottom: 0; left: 0; width: 30px; background: linear-gradient(to right, rgba(120, 255, 170, 0.25), transparent); }
+#edge-glow-right { top: 0; bottom: 0; right: 0; width: 30px; background: linear-gradient(to left, rgba(120, 255, 170, 0.25), transparent); }
+.edge-glow.pulse { animation: edgePulse 0.6s ease-in-out; }
+@keyframes edgePulse { 0%,100% { opacity: inherit; } 50% { opacity: 0.8; } }
 </style>
 </head>
 <body>
@@ -778,12 +793,17 @@ html, body {
 
 <div id="toast"></div>
 
+<div id="edge-glow-top" class="edge-glow"></div>
+<div id="edge-glow-bottom" class="edge-glow"></div>
+<div id="edge-glow-left" class="edge-glow"></div>
+<div id="edge-glow-right" class="edge-glow"></div>
+
 <div id="canvas-container">
   <canvas id="canvas"></canvas>
 </div>
 
 <script>
-// â”€â”€ Firebase config â€” replace with your project's values â”€â”€
+// ── Firebase config — replace with your project's values ──
 var firebaseConfig = {
   apiKey: "AIzaSyDZxDvhTodhJRiTOGD3wtNG7BbmbXnNPNI",
   authDomain: "nolus-a545d.firebaseapp.com",
@@ -800,7 +820,7 @@ firebase.auth().signInAnonymously().catch(function(err) {
   console.warn('Firebase auth failed:', err);
 });
 
-// â”€â”€ Canvas ID routing â”€â”€
+// ── Canvas ID routing ──
 function getCanvasId() {
   var params = new URLSearchParams(window.location.search);
   return params.get('id');
@@ -839,7 +859,7 @@ if (!canvasId) {
   var drawLayer = document.createElement('canvas');
   var drawCtx = drawLayer.getContext('2d');
 
-  // â”€â”€ State â”€â”€
+  // ── State ──
   var currentTool = 'pen';
   var currentColor = '#ffffff';
   var strokes = [];
@@ -903,9 +923,25 @@ if (!canvasId) {
   var lastPenX = 0;
   var lastPenY = 0;
 
+  // Shape snapping state
+  var holdTimer = null;
+  var holdScreenAnchor = null;
+  var selectedShapeIndex = -1;
+  var resizeDragHandle = -1;
+  var resizeOrigBounds = null;
+  var resizeOrigP1 = null;
+  var resizeOrigP2 = null;
+  var resizeOrigTri = null;
+  var snapAnimating = false;
+
+  // Edge glow state
+  var edgeGlowEls = null;
+  var isPanning = false;
+  var edgeGlowActive = {top: false, right: false, bottom: false, left: false};
+
   var dpr = window.devicePixelRatio || 1;
 
-  // â”€â”€ Toast â”€â”€
+  // ── Toast ──
   var toastEl = document.getElementById('toast');
   var toastTimer = null;
   function showToast(msg) {
@@ -915,7 +951,7 @@ if (!canvasId) {
     toastTimer = setTimeout(function() { toastEl.classList.remove('visible'); }, 2000);
   }
 
-  // â”€â”€ Sync indicator â”€â”€
+  // ── Sync indicator ──
   var syncIndicator = document.getElementById('sync-indicator');
   var syncText = document.getElementById('sync-text');
   var syncTimer = null;
@@ -928,19 +964,28 @@ if (!canvasId) {
     }
   }
 
-  // â”€â”€ Cloud sync (Firebase) â”€â”€
+  // ── Cloud sync (Firebase) ──
   var canvasRef = db.ref('canvases/' + canvasId + '/strokes');
   var isLoadingFromCloud = false;
   var localBufferKey = 'nolus_pending_' + canvasId;
 
   function strokeToJSON(s) {
-    return {
+    var data = {
       tool: s.tool,
       color: s.color || null,
       baseSize: s.baseSize,
-      points: s.points,
       timestamp: Date.now()
     };
+    if (s.tool === 'shape') {
+      data.shapeType = s.shapeType;
+      data.bounds = s.bounds;
+      if (s.p1) data.p1 = s.p1;
+      if (s.p2) data.p2 = s.p2;
+      if (s.triPoints) data.triPoints = s.triPoints;
+    } else {
+      data.points = s.points;
+    }
+    return data;
   }
 
   function saveStrokeToCloud(stroke) {
@@ -950,7 +995,7 @@ if (!canvasId) {
       showSync('offline', 'Offline');
       return;
     }
-    showSync('saving', 'Savingâ€¦');
+    showSync('saving', 'Saving…');
     canvasRef.push(data, function(err) {
       if (err) {
         bufferOffline(data);
@@ -963,7 +1008,7 @@ if (!canvasId) {
 
   function saveAllStrokesToCloud() {
     if (!navigator.onLine) return;
-    showSync('saving', 'Savingâ€¦');
+    showSync('saving', 'Saving…');
     var data = {};
     for (var i = 0; i < strokes.length; i++) {
       data[canvasRef.push().key] = strokeToJSON(strokes[i]);
@@ -976,7 +1021,7 @@ if (!canvasId) {
 
   function loadFromCloud(callback) {
     isLoadingFromCloud = true;
-    showSync('saving', 'Loadingâ€¦');
+    showSync('saving', 'Loading…');
     canvasRef.once('value', function(snapshot) {
       var val = snapshot.val();
       if (val) {
@@ -987,12 +1032,25 @@ if (!canvasId) {
         });
         for (var i = 0; i < keys.length; i++) {
           var s = val[keys[i]];
-          strokes.push({
-            tool: s.tool,
-            color: s.color || '#ffffff',
-            baseSize: s.baseSize,
-            points: s.points
-          });
+          if (s.tool === 'shape') {
+            strokes.push({
+              tool: 'shape',
+              shapeType: s.shapeType,
+              color: s.color || '#ffffff',
+              baseSize: s.baseSize,
+              bounds: s.bounds,
+              p1: s.p1 || null,
+              p2: s.p2 || null,
+              triPoints: s.triPoints || null
+            });
+          } else {
+            strokes.push({
+              tool: s.tool,
+              color: s.color || '#ffffff',
+              baseSize: s.baseSize,
+              points: s.points
+            });
+          }
         }
       }
       isLoadingFromCloud = false;
@@ -1005,7 +1063,7 @@ if (!canvasId) {
     });
   }
 
-  // â”€â”€ Offline buffer â”€â”€
+  // ── Offline buffer ──
   function bufferOffline(data) {
     try {
       var buf = JSON.parse(localStorage.getItem(localBufferKey) || '[]');
@@ -1018,7 +1076,7 @@ if (!canvasId) {
     try {
       var buf = JSON.parse(localStorage.getItem(localBufferKey) || '[]');
       if (buf.length === 0) return;
-      showSync('saving', 'Syncing ' + buf.length + 'â€¦');
+      showSync('saving', 'Syncing ' + buf.length + '…');
       var updates = {};
       for (var i = 0; i < buf.length; i++) {
         updates[canvasRef.push().key] = buf[i];
@@ -1036,7 +1094,7 @@ if (!canvasId) {
     flushOfflineBuffer();
   });
 
-  // â”€â”€ Copy Link â”€â”€
+  // ── Copy Link ──
   document.getElementById('copy-link-btn').addEventListener('click', function(e) {
     e.preventDefault();
     var url = window.location.origin + window.location.pathname + '?id=' + canvasId;
@@ -1063,7 +1121,7 @@ if (!canvasId) {
     document.body.removeChild(ta);
   }
 
-  // â”€â”€ Pages browser â”€â”€
+  // ── Pages browser ──
   var pagesPanel = document.getElementById('pages-panel');
   var ppTree = document.getElementById('pp-tree');
   var pagesPanelVisible = false;
@@ -1107,7 +1165,7 @@ if (!canvasId) {
   }
 
   function loadPagesTree() {
-    ppTree.innerHTML = '<div class="pp-empty">Ladenâ€¦</div>';
+    ppTree.innerHTML = '<div class="pp-empty">Laden…</div>';
     metaRef.once('value', function(snapshot) {
       var items = snapshot.val() || {};
       ensureCurrentPageRegistered(items, function() {
@@ -1142,7 +1200,7 @@ if (!canvasId) {
         + '<button class="pp-action-btn pp-add-page" title="Neue Seite hier"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>'
         + '<button class="pp-action-btn pp-add-subfolder" title="Unterordner"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>'
         + '<button class="pp-action-btn pp-rename" title="Umbenennen"><svg viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>'
-        + '<button class="pp-action-btn pp-delete" title="LÃ¶schen"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg></button>'
+        + '<button class="pp-action-btn pp-delete" title="Löschen"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg></button>'
         + '</span></div>';
       if (isOpen) {
         var children = folders.filter(function(f) { return f.parent === folder._key; });
@@ -1159,7 +1217,7 @@ if (!canvasId) {
         + '<span class="pp-item-name">' + escHtml(page.name || 'Untitled') + '</span>'
         + '<span class="pp-item-actions">'
         + '<button class="pp-action-btn pp-rename" title="Umbenennen"><svg viewBox="0 0 24 24"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>'
-        + '<button class="pp-action-btn pp-delete" title="LÃ¶schen"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg></button>'
+        + '<button class="pp-action-btn pp-delete" title="Löschen"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg></button>'
         + '</span></div>';
     }
 
@@ -1228,7 +1286,7 @@ if (!canvasId) {
           var key = el.dataset.key;
           var type = el.dataset.type;
           if (type === 'page' && el.dataset.canvas === canvasId) {
-            showToast('Aktive Seite kann nicht gelÃ¶scht werden');
+            showToast('Aktive Seite kann nicht gelöscht werden');
             return;
           }
           metaRef.child(key).remove(function() { loadPagesTree(); });
@@ -1313,7 +1371,7 @@ if (!canvasId) {
     }
   });
 
-  // â”€â”€ Canvas setup â”€â”€
+  // ── Canvas setup ──
 
   function resizeCanvas() {
     canvas.width = window.innerWidth * dpr;
@@ -1382,11 +1440,20 @@ if (!canvasId) {
     // Composite stroke layer onto display
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(drawLayer, 0, 0);
+
+    // Draw resize handles for selected shape
+    if (selectedShapeIndex >= 0 && selectedShapeIndex < strokes.length && strokes[selectedShapeIndex].tool === 'shape') {
+      drawResizeHandles(strokes[selectedShapeIndex]);
+    }
   }
 
-  // â”€â”€ Stroke rendering â”€â”€
+  // ── Stroke rendering ──
 
   function renderStroke(c, stroke) {
+    if (stroke.tool === 'shape') {
+      renderShapeStroke(c, stroke);
+      return;
+    }
     if (stroke.tool === 'eraser') {
       renderEraserStroke(c, stroke);
       return;
@@ -1576,7 +1643,377 @@ if (!canvasId) {
     };
   }
 
-  // â”€â”€ View clamping â”€â”€
+  // ── Shape Recognition ──
+
+  function resampleEvenly(pts, n) {
+    var totalLen = 0;
+    for (var i = 1; i < pts.length; i++) {
+      var dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
+      totalLen += Math.sqrt(dx*dx + dy*dy);
+    }
+    if (totalLen === 0) return pts.slice(0, n);
+    var interval = totalLen / (n - 1);
+    var D = 0;
+    var src = pts.map(function(p) { return {x:p.x, y:p.y}; });
+    var out = [{x: src[0].x, y: src[0].y}];
+    for (var i = 1; i < src.length && out.length < n; i++) {
+      var dx = src[i].x - src[i-1].x, dy = src[i].y - src[i-1].y;
+      var d = Math.sqrt(dx*dx + dy*dy);
+      if (D + d >= interval) {
+        var t = (interval - D) / d;
+        var nx = src[i-1].x + t*dx, ny = src[i-1].y + t*dy;
+        out.push({x: nx, y: ny});
+        src.splice(i, 0, {x: nx, y: ny});
+        D = 0;
+      } else {
+        D += d;
+      }
+    }
+    while (out.length < n) out.push({x: src[src.length-1].x, y: src[src.length-1].y});
+    return out;
+  }
+
+  function shapeBounds(pts) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      if (pts[i].x < minX) minX = pts[i].x;
+      if (pts[i].y < minY) minY = pts[i].y;
+      if (pts[i].x > maxX) maxX = pts[i].x;
+      if (pts[i].y > maxY) maxY = pts[i].y;
+    }
+    return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
+  }
+
+  function ptDist(a, b) {
+    var dx = a.x - b.x, dy = a.y - b.y;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  function ptToLineDist(p, a, b) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len2 = dx*dx + dy*dy;
+    if (len2 === 0) return ptDist(p, a);
+    var t = Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy) / len2));
+    return ptDist(p, {x: a.x+t*dx, y: a.y+t*dy});
+  }
+
+  function recognizeShape(rawPoints) {
+    if (rawPoints.length < 8) return null;
+    var pts = rawPoints.map(function(p) { return {x: p.x, y: p.y}; });
+    var resampled = resampleEvenly(pts, 64);
+    var bb = shapeBounds(resampled);
+    if (bb.w < 15 && bb.h < 15) return null;
+
+    var totalLen = 0;
+    for (var i = 1; i < resampled.length; i++) totalLen += ptDist(resampled[i-1], resampled[i]);
+    var startEnd = ptDist(resampled[0], resampled[resampled.length-1]);
+    var isClosed = startEnd < totalLen * 0.2;
+
+    // Line
+    if (!isClosed) {
+      var maxDev = 0;
+      var first = resampled[0], last = resampled[resampled.length-1];
+      for (var i = 0; i < resampled.length; i++) {
+        maxDev = Math.max(maxDev, ptToLineDist(resampled[i], first, last));
+      }
+      var span = ptDist(first, last);
+      if (span > 20 && maxDev / span < 0.1) {
+        return {type: 'line', bounds: bb, p1: {x:first.x, y:first.y}, p2: {x:last.x, y:last.y}};
+      }
+      return null;
+    }
+
+    // Circle / Ellipse
+    var cx = bb.x + bb.w/2, cy = bb.y + bb.h/2;
+    var hw = bb.w/2 || 1, hh = bb.h/2 || 1;
+    var dists = resampled.map(function(p) {
+      var nx = (p.x - cx) / hw, ny = (p.y - cy) / hh;
+      return Math.sqrt(nx*nx + ny*ny);
+    });
+    var avgD = 0;
+    for (var i = 0; i < dists.length; i++) avgD += dists[i];
+    avgD /= dists.length;
+    var variance = 0;
+    for (var i = 0; i < dists.length; i++) variance += (dists[i]-avgD)*(dists[i]-avgD);
+    variance /= dists.length;
+
+    if (variance < 0.06) {
+      var ar = bb.w / Math.max(1, bb.h);
+      if (ar > 0.75 && ar < 1.33) return {type: 'circle', bounds: bb};
+      return {type: 'ellipse', bounds: bb};
+    }
+
+    // Corner detection for triangle / rectangle
+    var w = Math.max(3, Math.floor(resampled.length / 12));
+    var angleData = [];
+    for (var i = w; i < resampled.length - w; i++) {
+      var before = resampled[i-w], at = resampled[i], after = resampled[i+w];
+      var v1x = before.x-at.x, v1y = before.y-at.y;
+      var v2x = after.x-at.x, v2y = after.y-at.y;
+      var dot = v1x*v2x + v1y*v2y;
+      var cross = v1x*v2y - v1y*v2x;
+      angleData.push({idx: i, angle: Math.abs(Math.atan2(cross, dot))});
+    }
+
+    var threshold = Math.PI * 0.35;
+    var corners = [];
+    for (var i = 1; i < angleData.length - 1; i++) {
+      if (angleData[i].angle < threshold &&
+          angleData[i].angle <= angleData[i-1].angle &&
+          angleData[i].angle <= angleData[i+1].angle) {
+        if (corners.length === 0 || angleData[i].idx - corners[corners.length-1] > resampled.length / 8) {
+          corners.push(angleData[i].idx);
+        }
+      }
+    }
+
+    if (corners.length === 3) {
+      var triPts = corners.map(function(idx) { return {x: resampled[idx].x, y: resampled[idx].y}; });
+      return {type: 'triangle', bounds: bb, triPoints: triPts};
+    }
+    if (corners.length === 4) {
+      return {type: 'rectangle', bounds: bb};
+    }
+    return null;
+  }
+
+  // ── Shape Rendering ──
+
+  function renderShapeStroke(c, stroke) {
+    c.strokeStyle = stroke.color;
+    c.lineWidth = stroke.baseSize;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = 'source-over';
+    c.beginPath();
+
+    var b = stroke.bounds;
+    switch (stroke.shapeType) {
+      case 'line':
+        c.moveTo(stroke.p1.x, stroke.p1.y);
+        c.lineTo(stroke.p2.x, stroke.p2.y);
+        break;
+      case 'circle':
+        var r = Math.min(b.w, b.h) / 2;
+        c.arc(b.x + b.w/2, b.y + b.h/2, Math.max(1, r), 0, Math.PI * 2);
+        break;
+      case 'ellipse':
+        c.ellipse(b.x + b.w/2, b.y + b.h/2, Math.max(1, b.w/2), Math.max(1, b.h/2), 0, 0, Math.PI * 2);
+        break;
+      case 'rectangle':
+        c.rect(b.x, b.y, b.w, b.h);
+        break;
+      case 'triangle':
+        var tp = stroke.triPoints;
+        c.moveTo(tp[0].x, tp[0].y);
+        c.lineTo(tp[1].x, tp[1].y);
+        c.lineTo(tp[2].x, tp[2].y);
+        c.closePath();
+        break;
+    }
+    c.stroke();
+  }
+
+  // ── Resize Handles ──
+
+  function getHandlePositions(bounds) {
+    var b = bounds;
+    return [
+      {x: b.x, y: b.y},
+      {x: b.x+b.w/2, y: b.y},
+      {x: b.x+b.w, y: b.y},
+      {x: b.x+b.w, y: b.y+b.h/2},
+      {x: b.x+b.w, y: b.y+b.h},
+      {x: b.x+b.w/2, y: b.y+b.h},
+      {x: b.x, y: b.y+b.h},
+      {x: b.x, y: b.y+b.h/2}
+    ];
+  }
+
+  function drawResizeHandles(shape) {
+    var handles = getHandlePositions(shape.bounds);
+    var hr = 5 / view.scale;
+    var lw = 1.5 / view.scale;
+    setWorldTransform();
+    for (var i = 0; i < handles.length; i++) {
+      ctx.beginPath();
+      ctx.arc(handles[i].x, handles[i].y, hr, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = lw;
+      ctx.stroke();
+    }
+    // Dashed bounding box
+    ctx.setLineDash([4 / view.scale, 4 / view.scale]);
+    ctx.strokeStyle = 'rgba(74, 158, 255, 0.5)';
+    ctx.lineWidth = 1 / view.scale;
+    ctx.strokeRect(shape.bounds.x, shape.bounds.y, shape.bounds.w, shape.bounds.h);
+    ctx.setLineDash([]);
+  }
+
+  function hitTestHandles(worldX, worldY, shape) {
+    var handles = getHandlePositions(shape.bounds);
+    var hitR = 14 / view.scale;
+    for (var i = 0; i < handles.length; i++) {
+      var dx = worldX - handles[i].x, dy = worldY - handles[i].y;
+      if (dx*dx + dy*dy < hitR * hitR) return i;
+    }
+    return -1;
+  }
+
+  function resizeShapeByHandle(shape, handleIdx, worldX, worldY) {
+    var ob = resizeOrigBounds;
+    var dx = worldX - resizeDragStart.x;
+    var dy = worldY - resizeDragStart.y;
+    var nx = ob.x, ny = ob.y, nw = ob.w, nh = ob.h;
+
+    // 0=TL, 1=T, 2=TR, 3=R, 4=BR, 5=B, 6=BL, 7=L
+    if (handleIdx === 0 || handleIdx === 6 || handleIdx === 7) { nx = ob.x + dx; nw = ob.w - dx; }
+    if (handleIdx === 2 || handleIdx === 3 || handleIdx === 4) { nw = ob.w + dx; }
+    if (handleIdx === 0 || handleIdx === 1 || handleIdx === 2) { ny = ob.y + dy; nh = ob.h - dy; }
+    if (handleIdx === 4 || handleIdx === 5 || handleIdx === 6) { nh = ob.h + dy; }
+
+    if (nw < 10) { nw = 10; if (handleIdx === 0 || handleIdx === 6 || handleIdx === 7) nx = ob.x + ob.w - 10; }
+    if (nh < 10) { nh = 10; if (handleIdx === 0 || handleIdx === 1 || handleIdx === 2) ny = ob.y + ob.h - 10; }
+
+    shape.bounds = {x: nx, y: ny, w: nw, h: nh};
+
+    // Remap shape-specific points proportionally
+    if (shape.p1 && resizeOrigP1) {
+      shape.p1 = {x: nx + (resizeOrigP1.x - ob.x) / ob.w * nw, y: ny + (resizeOrigP1.y - ob.y) / ob.h * nh};
+      shape.p2 = {x: nx + (resizeOrigP2.x - ob.x) / ob.w * nw, y: ny + (resizeOrigP2.y - ob.y) / ob.h * nh};
+    }
+    if (shape.triPoints && resizeOrigTri) {
+      shape.triPoints = resizeOrigTri.map(function(p) {
+        return {x: nx + (p.x - ob.x) / ob.w * nw, y: ny + (p.y - ob.y) / ob.h * nh};
+      });
+    }
+  }
+
+  // ── Snap Animation ──
+
+  function animateSnap(fromStroke, toShape, callback) {
+    snapAnimating = true;
+    var startTime = performance.now();
+    var duration = 200;
+
+    function frame(time) {
+      var progress = Math.min(1, (time - startTime) / duration);
+      var eased = 1 - Math.pow(1 - progress, 3);
+
+      drawBackground();
+      setWorldTransform();
+      drawGrid();
+      drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+      drawCtx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+      setWorldTransform(drawCtx);
+      for (var i = 0; i < strokes.length; i++) renderStroke(drawCtx, strokes[i]);
+
+      drawCtx.globalAlpha = 1 - eased;
+      renderStroke(drawCtx, fromStroke);
+      drawCtx.globalAlpha = eased;
+      renderShapeStroke(drawCtx, toShape);
+      drawCtx.globalAlpha = 1;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(drawLayer, 0, 0);
+
+      if (progress < 1) requestAnimationFrame(frame);
+      else { snapAnimating = false; callback(); }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function trySnapShape() {
+    if (!isDrawing || !currentStroke || currentStroke.tool === 'eraser' || currentStroke.tool === 'highlighter') return;
+    if (currentStroke.points.length < 8) return;
+
+    var result = recognizeShape(currentStroke.points);
+    if (!result) return;
+
+    var shape = {
+      tool: 'shape',
+      shapeType: result.type,
+      color: currentStroke.color,
+      baseSize: currentStroke.baseSize,
+      bounds: result.bounds,
+      p1: result.p1 || null,
+      p2: result.p2 || null,
+      triPoints: result.triPoints || null
+    };
+
+    var freehand = {
+      tool: currentStroke.tool,
+      color: currentStroke.color,
+      baseSize: currentStroke.baseSize,
+      points: currentStroke.points.slice()
+    };
+
+    isDrawing = false;
+    currentStroke = null;
+    clearTimeout(holdTimer);
+    holdTimer = null;
+
+    animateSnap(freehand, shape, function() {
+      strokes.push(shape);
+      redoStack = [];
+      updateUndoRedo();
+      saveStrokeToCloud(shape);
+      selectedShapeIndex = strokes.length - 1;
+      redrawAll();
+    });
+  }
+
+  // ── Edge Glow ──
+
+  function updateEdgeGlow() {
+    if (!edgeGlowEls) {
+      edgeGlowEls = {
+        top: document.getElementById('edge-glow-top'),
+        bottom: document.getElementById('edge-glow-bottom'),
+        left: document.getElementById('edge-glow-left'),
+        right: document.getElementById('edge-glow-right')
+      };
+    }
+    var visW = window.innerWidth / view.scale;
+    var visH = window.innerHeight / view.scale;
+    var threshold = 1;
+
+    var now = {
+      top: view.y <= threshold,
+      bottom: view.y + visH >= CANVAS_H - threshold,
+      left: view.x <= threshold,
+      right: view.x + visW >= CANVAS_W - threshold
+    };
+
+    for (var side in now) {
+      var el = edgeGlowEls[side];
+      if (now[side] && isPanning) {
+        if (!edgeGlowActive[side]) {
+          el.style.opacity = '0.7';
+          edgeGlowActive[side] = true;
+        }
+      } else {
+        if (edgeGlowActive[side]) {
+          el.style.opacity = '0';
+          edgeGlowActive[side] = false;
+        }
+      }
+    }
+  }
+
+  function pulseEdgeGlow(side) {
+    if (!edgeGlowEls) return;
+    var el = edgeGlowEls[side];
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('pulse');
+    setTimeout(function() { el.classList.remove('pulse'); }, 600);
+  }
+
+  // ── View clamping ──
 
   function getMinScale() {
     return Math.max(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H);
@@ -1591,7 +2028,7 @@ if (!canvasId) {
     view.y = Math.max(0, Math.min(CANVAS_H - visH, view.y));
   }
 
-  // â”€â”€ Eraser cursor â”€â”€
+  // ── Eraser cursor ──
 
   function updateEraserCursor(sx, sy) {
     if (currentTool !== 'eraser') {
@@ -1610,7 +2047,7 @@ if (!canvasId) {
     eraserCursor.style.display = 'none';
   }
 
-  // â”€â”€ Tool switch indicator â”€â”€
+  // ── Tool switch indicator ──
 
   function showToolIndicator(x, y) {
     var penPath = '<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>';
@@ -1626,7 +2063,7 @@ if (!canvasId) {
     }, 600);
   }
 
-  // â”€â”€ Floating menu â”€â”€
+  // ── Floating menu ──
 
   function toggleMenu(x, y) {
     if (menuVisible) dismissMenu();
@@ -1676,7 +2113,7 @@ if (!canvasId) {
     });
   }
 
-  // â”€â”€ Size popup (long-press) â”€â”€
+  // ── Size popup (long-press) ──
 
   function showSizePopup(btn, key) {
     var rect = btn.getBoundingClientRect();
@@ -1723,10 +2160,11 @@ if (!canvasId) {
   sizePopup.addEventListener('touchmove', function(e) { e.stopPropagation(); });
   sizePopup.addEventListener('touchend', function(e) { e.stopPropagation(); });
 
-  // â”€â”€ Undo / Redo â”€â”€
+  // ── Undo / Redo ──
 
   function undo() {
     if (strokes.length === 0) return;
+    selectedShapeIndex = -1;
     redoStack.push(strokes.pop());
     if (redoStack.length > 50) redoStack.shift();
     redrawAll();
@@ -1736,6 +2174,7 @@ if (!canvasId) {
 
   function redo() {
     if (redoStack.length === 0) return;
+    selectedShapeIndex = -1;
     strokes.push(redoStack.pop());
     redrawAll();
     updateUndoRedo();
@@ -1747,11 +2186,12 @@ if (!canvasId) {
     document.getElementById('redo-btn').disabled = redoStack.length === 0;
   }
 
-  // â”€â”€ Pointer events (pen only for drawing) â”€â”€
+  // ── Pointer events (pen only for drawing) ──
 
   function onPointerDown(e) {
     if (e.pointerType !== 'pen') return;
     if (e.button !== 0) return;
+    if (snapAnimating) return;
     e.preventDefault();
 
     if (menuVisible) {
@@ -1759,9 +2199,29 @@ if (!canvasId) {
       if (floatMenu.contains(e.target)) return;
     }
 
+    var pos = screenToWorld(e.clientX, e.clientY);
+
+    // Check resize handles on selected shape
+    if (selectedShapeIndex >= 0 && selectedShapeIndex < strokes.length) {
+      var shape = strokes[selectedShapeIndex];
+      var hIdx = hitTestHandles(pos.x, pos.y, shape);
+      if (hIdx >= 0) {
+        canvas.setPointerCapture(e.pointerId);
+        resizeDragHandle = hIdx;
+        resizeDragStart = {x: pos.x, y: pos.y};
+        resizeOrigBounds = {x: shape.bounds.x, y: shape.bounds.y, w: shape.bounds.w, h: shape.bounds.h};
+        resizeOrigP1 = shape.p1 ? {x: shape.p1.x, y: shape.p1.y} : null;
+        resizeOrigP2 = shape.p2 ? {x: shape.p2.x, y: shape.p2.y} : null;
+        resizeOrigTri = shape.triPoints ? shape.triPoints.map(function(p) { return {x:p.x, y:p.y}; }) : null;
+        return;
+      }
+      // Tap outside handles — deselect
+      selectedShapeIndex = -1;
+      redrawAll();
+    }
+
     canvas.setPointerCapture(e.pointerId);
     isDrawing = true;
-    var pos = screenToWorld(e.clientX, e.clientY);
 
     if (currentTool === 'eraser') {
       currentStroke = {
@@ -1773,6 +2233,11 @@ if (!canvasId) {
       updateEraserCursor(e.clientX, e.clientY);
       return;
     }
+
+    // Start hold detection
+    holdScreenAnchor = {x: e.clientX, y: e.clientY};
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(trySnapShape, 500);
 
     currentStroke = {
       tool: currentTool,
@@ -1789,9 +2254,19 @@ if (!canvasId) {
 
   function onPointerMove(e) {
     if (e.pointerType !== 'pen') return;
+    if (snapAnimating) return;
 
     lastPenX = e.clientX;
     lastPenY = e.clientY;
+
+    // Resize drag
+    if (resizeDragHandle >= 0 && selectedShapeIndex >= 0) {
+      e.preventDefault();
+      var pos = screenToWorld(e.clientX, e.clientY);
+      resizeShapeByHandle(strokes[selectedShapeIndex], resizeDragHandle, pos.x, pos.y);
+      redrawAll();
+      return;
+    }
 
     if (currentTool === 'eraser' && !isDrawing) {
       updateEraserCursor(e.clientX, e.clientY);
@@ -1815,6 +2290,17 @@ if (!canvasId) {
 
     if (!currentStroke) return;
 
+    // Hold detection: reset timer if pen moved > 5px
+    if (holdScreenAnchor) {
+      var hdx = e.clientX - holdScreenAnchor.x;
+      var hdy = e.clientY - holdScreenAnchor.y;
+      if (hdx*hdx + hdy*hdy > 25) {
+        holdScreenAnchor = {x: e.clientX, y: e.clientY};
+        clearTimeout(holdTimer);
+        holdTimer = setTimeout(trySnapShape, 500);
+      }
+    }
+
     var events2 = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (var k2 = 0; k2 < events2.length; k2++) {
       var ce2 = events2[k2];
@@ -1831,9 +2317,23 @@ if (!canvasId) {
 
   function onPointerUp(e) {
     if (e.pointerType !== 'pen') return;
+    if (snapAnimating) return;
+
+    // Finish resize drag
+    if (resizeDragHandle >= 0 && selectedShapeIndex >= 0) {
+      e.preventDefault();
+      resizeDragHandle = -1;
+      resizeDragStart = null;
+      saveAllStrokesToCloud();
+      return;
+    }
+
     if (!isDrawing) return;
     e.preventDefault();
     isDrawing = false;
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    holdScreenAnchor = null;
 
     if (currentTool === 'eraser') {
       if (currentStroke && currentStroke.points.length >= 2) {
@@ -1859,6 +2359,10 @@ if (!canvasId) {
     if (e.pointerType !== 'pen') return;
     isDrawing = false;
     currentStroke = null;
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    holdScreenAnchor = null;
+    resizeDragHandle = -1;
     hideEraserCursor();
   }
 
@@ -1866,7 +2370,7 @@ if (!canvasId) {
     if (e.pointerType === 'pen') hideEraserCursor();
   }
 
-  // â”€â”€ Touch: one finger = pan + double-tap, two finger = pinch + tap-for-menu â”€â”€
+  // ── Touch: one finger = pan + double-tap, two finger = pinch + tap-for-menu ──
 
   function hasStylusTouch(e) {
     for (var i = 0; i < e.touches.length; i++) {
@@ -1922,9 +2426,19 @@ if (!canvasId) {
       var dx = t.clientX - dragState.startX;
       var dy = t.clientY - dragState.startY;
       if (Math.abs(dx) > 8 || Math.abs(dy) > 8) dragState.moved = true;
+      var prevX = view.x, prevY = view.y;
       view.x = dragState.viewX - dx / view.scale;
       view.y = dragState.viewY - dy / view.scale;
       clampView();
+      isPanning = true;
+      // Pulse if trying to pan past edge
+      var visW = window.innerWidth / view.scale;
+      var visH = window.innerHeight / view.scale;
+      if (dragState.viewY - dy / view.scale < 0 && view.y <= 0) pulseEdgeGlow('top');
+      if (dragState.viewY - dy / view.scale + visH > CANVAS_H && view.y + visH >= CANVAS_H) pulseEdgeGlow('bottom');
+      if (dragState.viewX - dx / view.scale < 0 && view.x <= 0) pulseEdgeGlow('left');
+      if (dragState.viewX - dx / view.scale + visW > CANVAS_W && view.x + visW >= CANVAS_W) pulseEdgeGlow('right');
+      updateEdgeGlow();
       redrawAll();
     }
 
@@ -1947,6 +2461,8 @@ if (!canvasId) {
       view.x = pinchState.worldCX - cx / newScale;
       view.y = pinchState.worldCY - cy / newScale;
       clampView();
+      isPanning = true;
+      updateEdgeGlow();
       redrawAll();
     }
   }
@@ -1980,6 +2496,10 @@ if (!canvasId) {
     }
 
     if (e.touches.length === 0) {
+      // Fade out edge glow when panning stops
+      isPanning = false;
+      updateEdgeGlow();
+
       // Double-tap detection
       if (dragState && !dragState.moved) {
         var tapDuration = performance.now() - dragState.time;
@@ -1987,7 +2507,8 @@ if (!canvasId) {
           var now = performance.now();
           var tapDist = Math.hypot(dragState.startX - lastTap.x, dragState.startY - lastTap.y);
           if (now - lastTap.time < 350 && tapDist < 40) {
-            // Double tap detected
+            // Double tap detected — deselect any shape first
+            if (selectedShapeIndex >= 0) { selectedShapeIndex = -1; redrawAll(); }
             currentTool = (currentTool === 'eraser') ? 'pen' : 'eraser';
             showToolIndicator(dragState.startX, dragState.startY);
             syncMenuState();
@@ -2001,7 +2522,7 @@ if (!canvasId) {
     }
   }
 
-  // â”€â”€ Menu interactions â”€â”€
+  // ── Menu interactions ──
 
   floatMenu.querySelectorAll('.fm-color').forEach(function(btn) {
     btn.addEventListener('pointerdown', function(e) {
@@ -2088,7 +2609,7 @@ if (!canvasId) {
     });
   })();
 
-  // Other tools (pen, highlighter) â€” simple tap
+  // Other tools (pen, highlighter) — simple tap
   floatMenu.querySelectorAll('.fm-tool:not([data-tool="eraser"])').forEach(function(btn) {
     btn.addEventListener('pointerdown', function(e) {
       e.stopPropagation();
@@ -2135,7 +2656,7 @@ if (!canvasId) {
   floatMenu.addEventListener('pointermove', function(e) { e.stopPropagation(); });
   floatMenu.addEventListener('pointerup', function(e) { e.stopPropagation(); });
 
-  // â”€â”€ Event binding â”€â”€
+  // ── Event binding ──
 
   canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
   canvas.addEventListener('pointermove', onPointerMove, { passive: false });
@@ -2171,7 +2692,7 @@ if (!canvasId) {
     }
   });
 
-  // â”€â”€ Init â”€â”€
+  // ── Init ──
 
   function centerView() {
     view.scale = getMinScale();
