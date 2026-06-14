@@ -686,12 +686,97 @@ html, body {
 #edge-glow-right { top: 0; bottom: 0; right: 0; width: 35px; background: radial-gradient(ellipse at 100% 50%, rgba(120, 255, 170, 0.3), transparent 70%); }
 .edge-glow.pulse { animation: edgePulse 0.6s ease-in-out; }
 @keyframes edgePulse { 0%,100% { opacity: inherit; } 50% { opacity: 0.8; } }
+
+/* Pressure sensitivity slider */
+.fm-pressure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+}
+.fm-pressure-label {
+  font-size: 9px;
+  opacity: 0.5;
+  min-width: 14px;
+  text-align: center;
+}
+.fm-pressure input[type="range"] {
+  flex: 1;
+  height: 20px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.fm-pressure input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 1.5px;
+  background: rgba(255,255,255,0.15);
+}
+.fm-pressure input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #4a9eff;
+  margin-top: -5.5px;
+}
+
+/* Color row wrapping */
+.fm-colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Selection context menu */
+#sel-ctx-menu {
+  position: fixed;
+  z-index: 210;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.12s, transform 0.12s;
+  visibility: hidden;
+}
+#sel-ctx-menu.visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+  visibility: visible;
+}
+.sel-ctx-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sel-ctx-btn:active { background: rgba(255,255,255,0.12); }
+.sel-ctx-btn.destructive { color: #ff6b6b; }
+.sel-ctx-btn svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; }
 </style>
 </head>
 <body>
 
 <div id="float-menu">
-  <div class="fm-row">
+  <div class="fm-row fm-colors" id="color-row">
     <button class="fm-color active" data-color="#ffffff" style="background:#ffffff"></button>
     <button class="fm-color" data-color="#4a9eff" style="background:#4a9eff"></button>
     <button class="fm-color" data-color="#ff4d4d" style="background:#ff4d4d"></button>
@@ -712,14 +797,23 @@ html, body {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
       Pen
     </button>
-    <button class="fm-tool" data-tool="highlighter">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5l4 4L7 21H3v-4L15.5 4.5z"/></svg>
-      Highlight
+    <button class="fm-tool" data-tool="dotted">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 4"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+      Dotted
     </button>
     <button class="fm-tool" data-tool="eraser">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.2 2c.8-.8 2-.8 2.8 0l5 5c.8.8.8 2 0 2.8L12 20"/><path d="M6 11l7 7"/></svg>
       Eraser
     </button>
+    <button class="fm-tool" data-tool="select">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 8-6 1-3 6-5-15z"/></svg>
+      Select
+    </button>
+  </div>
+  <div class="fm-divider"></div>
+  <div class="fm-row fm-pressure">
+    <span class="fm-pressure-label">P</span>
+    <input type="range" id="pressure-slider" min="0" max="100" value="50">
   </div>
   <div class="fm-divider"></div>
   <div class="fm-row">
@@ -762,6 +856,10 @@ html, body {
 </div>
 
 <div id="canvas-actions">
+  <button class="canvas-btn" id="refresh-btn">
+    <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+    Refresh
+  </button>
   <button class="canvas-btn" id="pages-btn">
     <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
     Pages
@@ -801,6 +899,11 @@ html, body {
 <div id="edge-glow-bottom" class="edge-glow"></div>
 <div id="edge-glow-left" class="edge-glow"></div>
 <div id="edge-glow-right" class="edge-glow"></div>
+
+<div id="sel-ctx-menu">
+  <button class="sel-ctx-btn" id="sel-copy-btn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy</button>
+  <button class="sel-ctx-btn destructive" id="sel-delete-btn"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Delete</button>
+</div>
 
 <div id="canvas-container">
   <canvas id="canvas"></canvas>
@@ -901,6 +1004,43 @@ if (!canvasId) {
     localStorage.setItem('drawapp_eraser_size', String(eraserSize));
   }
 
+  function loadPressureSensitivity() {
+    try {
+      var s = parseFloat(localStorage.getItem('drawapp_pressure'));
+      if (s >= 0 && s <= 1) return s;
+    } catch(e) {}
+    return 0.5;
+  }
+
+  function savePressureSensitivity() {
+    localStorage.setItem('drawapp_pressure', String(pressureSensitivity));
+  }
+
+  function loadCustomColors() {
+    try {
+      var c = JSON.parse(localStorage.getItem('drawapp_custom_colors'));
+      if (Array.isArray(c)) return c.slice(0, 12);
+    } catch(e) {}
+    return [];
+  }
+
+  function saveCustomColors() {
+    localStorage.setItem('drawapp_custom_colors', JSON.stringify(customColors));
+  }
+
+  function sliderToSize(sliderVal, isEraser) {
+    var minS = isEraser ? 5 : 1;
+    var maxS = 120;
+    return Math.max(minS, Math.round(minS * Math.pow(maxS / minS, sliderVal / 100)));
+  }
+
+  function sizeToSlider(size, isEraser) {
+    var minS = isEraser ? 5 : 1;
+    var maxS = 120;
+    if (size <= minS) return 0;
+    return Math.min(100, Math.round(100 * Math.log(size / minS) / Math.log(maxS / minS)));
+  }
+
   // Fixed canvas dimensions (world units)
   var CANVAS_W = 4000;
   var CANVAS_H = 3000;
@@ -945,6 +1085,26 @@ if (!canvasId) {
   var momentumAnimId = null;
   var panHistory = [];
 
+  // Pressure sensitivity (0 = none, 1 = max)
+  var pressureSensitivity = loadPressureSensitivity();
+
+  // Custom colors
+  var customColors = loadCustomColors();
+
+  // Batch save state
+  var batchPending = [];
+  var batchTimer = null;
+  var BATCH_SIZE = 10;
+  var BATCH_INTERVAL = 60000;
+
+  // Selection tool state
+  var selectedIndices = [];
+  var selectionMode = 'idle';
+  var lassoPoints = [];
+  var selDragStart = null;
+  var selOrigPositions = null;
+  var selCtxMenu = null;
+
   var dpr = window.devicePixelRatio || 1;
 
   // ── Toast ──
@@ -982,6 +1142,7 @@ if (!canvasId) {
       baseSize: s.baseSize,
       timestamp: Date.now()
     };
+    if (s.pressureSens !== undefined) data.pressureSens = s.pressureSens;
     if (s.tool === 'shape') {
       data.shapeType = s.shapeType;
       data.bounds = s.bounds;
@@ -1043,6 +1204,7 @@ if (!canvasId) {
               shapeType: s.shapeType,
               color: s.color || '#ffffff',
               baseSize: s.baseSize,
+              pressureSens: s.pressureSens !== undefined ? s.pressureSens : 0.5,
               bounds: s.bounds,
               p1: s.p1 || null,
               p2: s.p2 || null
@@ -1052,6 +1214,7 @@ if (!canvasId) {
               tool: s.tool,
               color: s.color || '#ffffff',
               baseSize: s.baseSize,
+              pressureSens: s.pressureSens !== undefined ? s.pressureSens : 0.5,
               points: s.points
             });
           }
@@ -1096,6 +1259,35 @@ if (!canvasId) {
 
   window.addEventListener('online', function() {
     flushOfflineBuffer();
+  });
+
+  // ── Batch save system ──
+
+  function queueSave() {
+    saveStrokesToLocalStorage();
+    batchPending.push(1);
+    if (batchPending.length >= BATCH_SIZE) {
+      flushBatch();
+    } else if (!batchTimer) {
+      batchTimer = setTimeout(flushBatch, BATCH_INTERVAL);
+    }
+  }
+
+  function flushBatch() {
+    if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+    if (batchPending.length === 0) return;
+    batchPending = [];
+    saveAllStrokesToCloud();
+  }
+
+  function saveStrokesToLocalStorage() {
+    try {
+      localStorage.setItem('nolus_strokes_' + canvasId, JSON.stringify(strokes.map(strokeToJSON)));
+    } catch(e) {}
+  }
+
+  window.addEventListener('beforeunload', function() {
+    if (batchPending.length > 0) flushBatch();
   });
 
   // ── Copy Link ──
@@ -1444,6 +1636,11 @@ if (!canvasId) {
     // Composite stroke layer onto display
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(drawLayer, 0, 0);
+
+    // Draw selection overlay
+    if (selectedIndices.length > 0 && currentTool === 'select') {
+      drawSelectionOverlay();
+    }
   }
 
   // ── Stroke rendering ──
@@ -1463,12 +1660,12 @@ if (!canvasId) {
     c.lineCap = 'round';
     c.lineJoin = 'round';
 
-    if (stroke.tool === 'highlighter') {
-      c.globalAlpha = 0.4;
-      c.globalCompositeOperation = 'screen';
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = 'source-over';
+    if (stroke.tool === 'dotted') {
+      c.setLineDash([stroke.baseSize * 2, stroke.baseSize * 3]);
     } else {
-      c.globalAlpha = 1;
-      c.globalCompositeOperation = 'source-over';
+      c.setLineDash([]);
     }
 
     c.strokeStyle = stroke.color;
@@ -1477,7 +1674,7 @@ if (!canvasId) {
       var p0 = pts[i - 1];
       var p1 = pts[i];
       c.beginPath();
-      c.lineWidth = getStrokeWidth(p1.pressure, stroke.baseSize, stroke.tool);
+      c.lineWidth = getStrokeWidth(p1.pressure, stroke.baseSize, stroke.tool, stroke.pressureSens);
 
       if (i === 1) {
         c.moveTo(p0.x, p0.y);
@@ -1494,6 +1691,7 @@ if (!canvasId) {
 
     c.globalAlpha = 1;
     c.globalCompositeOperation = 'source-over';
+    c.setLineDash([]);
   }
 
   function renderEraserStroke(c, stroke) {
@@ -1540,16 +1738,16 @@ if (!canvasId) {
     drawCtx.lineCap = 'round';
     drawCtx.lineJoin = 'round';
 
-    if (stroke.tool === 'highlighter') {
-      ctx.globalAlpha = 0.4;
-      ctx.globalCompositeOperation = 'screen';
-      drawCtx.globalAlpha = 0.4;
-      drawCtx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    drawCtx.globalAlpha = 1;
+    drawCtx.globalCompositeOperation = 'source-over';
+    if (stroke.tool === 'dotted') {
+      ctx.setLineDash([stroke.baseSize * 2, stroke.baseSize * 3]);
+      drawCtx.setLineDash([stroke.baseSize * 2, stroke.baseSize * 3]);
     } else {
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-      drawCtx.globalAlpha = 1;
-      drawCtx.globalCompositeOperation = 'source-over';
+      ctx.setLineDash([]);
+      drawCtx.setLineDash([]);
     }
 
     ctx.strokeStyle = stroke.color;
@@ -1557,7 +1755,7 @@ if (!canvasId) {
     var i = pts.length - 1;
     var p0 = pts[i - 1];
     var p1 = pts[i];
-    var lw = getStrokeWidth(p1.pressure, stroke.baseSize, stroke.tool);
+    var lw = getStrokeWidth(p1.pressure, stroke.baseSize, stroke.tool, stroke.pressureSens);
     ctx.lineWidth = lw;
     drawCtx.lineWidth = lw;
 
@@ -1586,8 +1784,10 @@ if (!canvasId) {
 
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+    ctx.setLineDash([]);
     drawCtx.globalAlpha = 1;
     drawCtx.globalCompositeOperation = 'source-over';
+    drawCtx.setLineDash([]);
   }
 
   function eraseIncremental(stroke, fromIdx) {
@@ -1629,10 +1829,11 @@ if (!canvasId) {
     ctx.drawImage(drawLayer, 0, 0);
   }
 
-  function getStrokeWidth(pressure, base, tool) {
+  function getStrokeWidth(pressure, base, tool, sens) {
     var p = Math.max(0.1, pressure);
-    if (tool === 'highlighter') return base * 6 * (0.6 + p * 0.4);
-    return base * (0.4 + p * 1.2);
+    var s = (sens !== undefined) ? sens : 0.5;
+    var range = s * 1.6;
+    return base * ((1 - range / 2) + p * range);
   }
 
   function screenToWorld(sx, sy) {
@@ -1775,7 +1976,7 @@ if (!canvasId) {
   }
 
   function trySnapShape() {
-    if (!isDrawing || !currentStroke || currentStroke.tool === 'eraser' || currentStroke.tool === 'highlighter') return;
+    if (!isDrawing || !currentStroke || currentStroke.tool === 'eraser' || currentStroke.tool === 'dotted') return;
     if (currentStroke.points.length < 8) return;
 
     var result = recognizeShape(currentStroke.points);
@@ -1812,10 +2013,234 @@ if (!canvasId) {
         snapDragActive = true;
         snapDragShapeIdx = strokes.length - 1;
       } else {
-        saveStrokeToCloud(shape);
+        queueSave();
       }
       redrawAll();
     });
+  }
+
+  // ── Selection Tool ──
+
+  function getStrokeBounds(s) {
+    if (s.tool === 'shape') return s.bounds || shapeBounds([s.p1, s.p2]);
+    if (!s.points || s.points.length === 0) return {x: 0, y: 0, w: 0, h: 0};
+    return shapeBounds(s.points);
+  }
+
+  function hitTestStroke(worldX, worldY, stroke, threshold) {
+    if (stroke.tool === 'eraser') return false;
+    if (stroke.tool === 'shape') {
+      if (stroke.shapeType === 'line') {
+        return ptToLineDist({x: worldX, y: worldY}, stroke.p1, stroke.p2) < threshold;
+      }
+      return false;
+    }
+    if (!stroke.points || stroke.points.length < 2) return false;
+    for (var i = 1; i < stroke.points.length; i++) {
+      if (ptToLineDist({x: worldX, y: worldY}, stroke.points[i-1], stroke.points[i]) < threshold) return true;
+    }
+    return false;
+  }
+
+  function pointInPolygon(x, y, polygon) {
+    var inside = false;
+    for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      var xi = polygon[i].x, yi = polygon[i].y;
+      var xj = polygon[j].x, yj = polygon[j].y;
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  function getSelectionBounds() {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (var i = 0; i < selectedIndices.length; i++) {
+      var s = strokes[selectedIndices[i]];
+      if (!s) continue;
+      var b = getStrokeBounds(s);
+      if (b.x < minX) minX = b.x;
+      if (b.y < minY) minY = b.y;
+      if (b.x + b.w > maxX) maxX = b.x + b.w;
+      if (b.y + b.h > maxY) maxY = b.y + b.h;
+    }
+    return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
+  }
+
+  function drawSelectionOverlay() {
+    if (selectedIndices.length === 0) return;
+    var bounds = getSelectionBounds();
+    setWorldTransform();
+    var pad = 8 / view.scale;
+
+    ctx.setLineDash([6 / view.scale, 4 / view.scale]);
+    ctx.strokeStyle = '#4a9eff';
+    ctx.lineWidth = 1.5 / view.scale;
+    ctx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.w + pad * 2, bounds.h + pad * 2);
+    ctx.setLineDash([]);
+
+    var hs = 7 / view.scale;
+    var corners = [
+      {x: bounds.x - pad, y: bounds.y - pad},
+      {x: bounds.x + bounds.w + pad, y: bounds.y - pad},
+      {x: bounds.x + bounds.w + pad, y: bounds.y + bounds.h + pad},
+      {x: bounds.x - pad, y: bounds.y + bounds.h + pad}
+    ];
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#4a9eff';
+    ctx.lineWidth = 1.5 / view.scale;
+    for (var i = 0; i < corners.length; i++) {
+      ctx.fillRect(corners[i].x - hs / 2, corners[i].y - hs / 2, hs, hs);
+      ctx.strokeRect(corners[i].x - hs / 2, corners[i].y - hs / 2, hs, hs);
+    }
+
+    // Lasso path
+    if (selectionMode === 'lasso' && lassoPoints.length > 2) {
+      ctx.setLineDash([4 / view.scale, 3 / view.scale]);
+      ctx.strokeStyle = 'rgba(74, 158, 255, 0.6)';
+      ctx.lineWidth = 1 / view.scale;
+      ctx.beginPath();
+      ctx.moveTo(lassoPoints[0].x, lassoPoints[0].y);
+      for (var j = 1; j < lassoPoints.length; j++) {
+        ctx.lineTo(lassoPoints[j].x, lassoPoints[j].y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function clearSelection() {
+    selectedIndices = [];
+    selectionMode = 'idle';
+    lassoPoints = [];
+    hideSelCtxMenu();
+    redrawAll();
+  }
+
+  function showSelCtxMenu() {
+    if (!selCtxMenu) selCtxMenu = document.getElementById('sel-ctx-menu');
+    if (selectedIndices.length === 0) return;
+    var bounds = getSelectionBounds();
+    var screenX = (bounds.x + bounds.w / 2 - view.x) * view.scale;
+    var screenY = (bounds.y - view.y) * view.scale - 50;
+    screenX = Math.max(60, Math.min(window.innerWidth - 60, screenX));
+    screenY = Math.max(10, screenY);
+    selCtxMenu.style.left = (screenX - 60) + 'px';
+    selCtxMenu.style.top = screenY + 'px';
+    selCtxMenu.classList.add('visible');
+  }
+
+  function hideSelCtxMenu() {
+    if (!selCtxMenu) selCtxMenu = document.getElementById('sel-ctx-menu');
+    selCtxMenu.classList.remove('visible');
+  }
+
+  function onSelectDown(e) {
+    var pos = screenToWorld(e.clientX, e.clientY);
+    var threshold = 15 / view.scale;
+
+    // Check if tapping inside existing selection bounds → start move
+    if (selectedIndices.length > 0) {
+      var bounds = getSelectionBounds();
+      var pad = 8 / view.scale;
+      if (pos.x >= bounds.x - pad && pos.x <= bounds.x + bounds.w + pad &&
+          pos.y >= bounds.y - pad && pos.y <= bounds.y + bounds.h + pad) {
+        selectionMode = 'moving';
+        selDragStart = {x: pos.x, y: pos.y};
+        selOrigPositions = selectedIndices.map(function(idx) {
+          var s = strokes[idx];
+          if (s.tool === 'shape') return {p1: {x: s.p1.x, y: s.p1.y}, p2: {x: s.p2.x, y: s.p2.y}};
+          return {points: s.points.map(function(p) { return {x: p.x, y: p.y}; })};
+        });
+        hideSelCtxMenu();
+        return;
+      }
+    }
+
+    // Tap-to-select single stroke
+    for (var i = strokes.length - 1; i >= 0; i--) {
+      if (hitTestStroke(pos.x, pos.y, strokes[i], threshold)) {
+        selectedIndices = [i];
+        selectionMode = 'idle';
+        redrawAll();
+        showSelCtxMenu();
+        return;
+      }
+    }
+
+    // Start lasso
+    selectedIndices = [];
+    hideSelCtxMenu();
+    selectionMode = 'lasso';
+    lassoPoints = [{x: pos.x, y: pos.y}];
+    redrawAll();
+  }
+
+  function onSelectMove(e) {
+    var pos = screenToWorld(e.clientX, e.clientY);
+
+    if (selectionMode === 'moving' && selDragStart && selOrigPositions) {
+      var dx = pos.x - selDragStart.x;
+      var dy = pos.y - selDragStart.y;
+      for (var i = 0; i < selectedIndices.length; i++) {
+        var s = strokes[selectedIndices[i]];
+        var orig = selOrigPositions[i];
+        if (s.tool === 'shape') {
+          s.p1 = {x: orig.p1.x + dx, y: orig.p1.y + dy};
+          s.p2 = {x: orig.p2.x + dx, y: orig.p2.y + dy};
+          s.bounds = shapeBounds([s.p1, s.p2]);
+        } else if (s.points) {
+          for (var j = 0; j < s.points.length; j++) {
+            s.points[j].x = orig.points[j].x + dx;
+            s.points[j].y = orig.points[j].y + dy;
+          }
+        }
+      }
+      redrawAll();
+      return;
+    }
+
+    if (selectionMode === 'lasso') {
+      lassoPoints.push({x: pos.x, y: pos.y});
+      redrawAll();
+    }
+  }
+
+  function onSelectUp(e) {
+    if (selectionMode === 'moving') {
+      selectionMode = 'idle';
+      selDragStart = null;
+      selOrigPositions = null;
+      queueSave();
+      redrawAll();
+      showSelCtxMenu();
+      return;
+    }
+
+    if (selectionMode === 'lasso' && lassoPoints.length > 4) {
+      selectedIndices = [];
+      for (var i = 0; i < strokes.length; i++) {
+        var s = strokes[i];
+        if (s.tool === 'eraser') continue;
+        var b = getStrokeBounds(s);
+        var cx = b.x + b.w / 2;
+        var cy = b.y + b.h / 2;
+        if (pointInPolygon(cx, cy, lassoPoints)) {
+          selectedIndices.push(i);
+        }
+      }
+      lassoPoints = [];
+      selectionMode = 'idle';
+      redrawAll();
+      if (selectedIndices.length > 0) showSelCtxMenu();
+      return;
+    }
+
+    lassoPoints = [];
+    selectionMode = 'idle';
+    redrawAll();
   }
 
   // ── Edge Glow ──
@@ -1976,12 +2401,10 @@ if (!canvasId) {
     var rect = btn.getBoundingClientRect();
     var isEraser = (key === 'eraser');
     var val = isEraser ? eraserSize : sizePresets[key];
-    var maxVal = isEraser ? 80 : 40;
-    var minVal = isEraser ? 5 : 1;
 
-    sizeSlider.min = minVal;
-    sizeSlider.max = maxVal;
-    sizeSlider.value = val;
+    sizeSlider.min = 0;
+    sizeSlider.max = 100;
+    sizeSlider.value = sizeToSlider(val, isEraser);
     sizeLabel.textContent = val;
     sizePopupKey = key;
 
@@ -1998,9 +2421,10 @@ if (!canvasId) {
   }
 
   sizeSlider.addEventListener('input', function() {
-    var val = parseInt(sizeSlider.value);
+    var isEraser = (sizePopupKey === 'eraser');
+    var val = sliderToSize(parseInt(sizeSlider.value), isEraser);
     sizeLabel.textContent = val;
-    if (sizePopupKey === 'eraser') {
+    if (isEraser) {
       eraserSize = val;
       saveEraserSize();
     } else if (sizePopupKey) {
@@ -2056,6 +2480,13 @@ if (!canvasId) {
     }
 
     var pos = screenToWorld(e.clientX, e.clientY);
+
+    if (currentTool === 'select') {
+      canvas.setPointerCapture(e.pointerId);
+      onSelectDown(e);
+      return;
+    }
+
     canvas.setPointerCapture(e.pointerId);
     isDrawing = true;
 
@@ -2079,6 +2510,7 @@ if (!canvasId) {
       tool: currentTool,
       color: currentColor,
       baseSize: sizePresets[currentSizeKey],
+      pressureSens: pressureSensitivity,
       points: [{
         x: pos.x,
         y: pos.y,
@@ -2094,6 +2526,13 @@ if (!canvasId) {
 
     lastPenX = e.clientX;
     lastPenY = e.clientY;
+
+    // Selection tool move
+    if (currentTool === 'select') {
+      e.preventDefault();
+      onSelectMove(e);
+      return;
+    }
 
     // Post-snap drag resize
     if (snapDragActive) {
@@ -2167,6 +2606,12 @@ if (!canvasId) {
       return;
     }
 
+    // Selection tool up
+    if (currentTool === 'select') {
+      onSelectUp(e);
+      return;
+    }
+
     if (!isDrawing) return;
     e.preventDefault();
     isDrawing = false;
@@ -2179,7 +2624,7 @@ if (!canvasId) {
         strokes.push(currentStroke);
         redoStack = [];
         updateUndoRedo();
-        saveStrokeToCloud(currentStroke);
+        queueSave();
       }
       currentStroke = null;
       return;
@@ -2189,7 +2634,7 @@ if (!canvasId) {
       strokes.push(currentStroke);
       redoStack = [];
       updateUndoRedo();
-      saveStrokeToCloud(currentStroke);
+      queueSave();
     }
     currentStroke = null;
   }
@@ -2459,13 +2904,49 @@ if (!canvasId) {
     });
   });
 
+  document.getElementById('custom-color').addEventListener('change', function(e) {
+    e.stopPropagation();
+    var color = e.target.value;
+    currentColor = color;
+    if (currentTool === 'eraser') currentTool = 'pen';
+    // Add as custom swatch if not already present
+    if (customColors.indexOf(color) === -1) {
+      customColors.push(color);
+      if (customColors.length > 12) customColors.shift();
+      saveCustomColors();
+      rebuildCustomSwatches();
+    }
+    floatMenu.querySelectorAll('.fm-color').forEach(function(b) { b.classList.remove('active'); });
+    syncMenuState();
+  });
+
   document.getElementById('custom-color').addEventListener('input', function(e) {
     e.stopPropagation();
     currentColor = e.target.value;
     if (currentTool === 'eraser') currentTool = 'pen';
     floatMenu.querySelectorAll('.fm-color').forEach(function(b) { b.classList.remove('active'); });
-    syncMenuState();
   });
+
+  function rebuildCustomSwatches() {
+    var row = document.getElementById('color-row');
+    row.querySelectorAll('.fm-color-custom').forEach(function(el) { el.remove(); });
+    var wrap = row.querySelector('.fm-custom-wrap');
+    for (var i = 0; i < customColors.length; i++) {
+      var btn = document.createElement('button');
+      btn.className = 'fm-color fm-color-custom';
+      btn.dataset.color = customColors[i];
+      btn.style.background = customColors[i];
+      btn.addEventListener('pointerdown', (function(color) {
+        return function(ev) {
+          ev.stopPropagation();
+          currentColor = color;
+          if (currentTool === 'eraser') currentTool = 'pen';
+          syncMenuState();
+        };
+      })(customColors[i]));
+      row.insertBefore(btn, wrap);
+    }
+  }
 
   // Size buttons: tap = select, long-press = adjust
   floatMenu.querySelectorAll('.fm-size').forEach(function(btn) {
@@ -2535,11 +3016,13 @@ if (!canvasId) {
     });
   })();
 
-  // Other tools (pen, highlighter) — simple tap
+  // Other tools (pen, dotted, select) — simple tap
   floatMenu.querySelectorAll('.fm-tool:not([data-tool="eraser"])').forEach(function(btn) {
     btn.addEventListener('pointerdown', function(e) {
       e.stopPropagation();
-      currentTool = btn.dataset.tool;
+      var newTool = btn.dataset.tool;
+      if (currentTool === 'select' && newTool !== 'select') clearSelection();
+      currentTool = newTool;
       hideSizePopup();
       syncMenuState();
     });
@@ -2645,6 +3128,81 @@ if (!canvasId) {
   window.addEventListener('resize', function() {
     resizeCanvas();
   });
+
+  // ── Refresh button ──
+  document.getElementById('refresh-btn').addEventListener('click', function(e) {
+    e.preventDefault();
+    if (batchPending.length > 0) flushBatch();
+    window.location.reload();
+  });
+
+  // ── Pressure slider ──
+  var pressureSlider = document.getElementById('pressure-slider');
+  pressureSlider.value = Math.round(pressureSensitivity * 100);
+  pressureSlider.addEventListener('input', function(e) {
+    e.stopPropagation();
+    pressureSensitivity = parseInt(pressureSlider.value) / 100;
+    savePressureSensitivity();
+  });
+  pressureSlider.addEventListener('pointerdown', function(e) { e.stopPropagation(); });
+  pressureSlider.addEventListener('pointermove', function(e) { e.stopPropagation(); });
+  pressureSlider.addEventListener('pointerup', function(e) { e.stopPropagation(); });
+  pressureSlider.addEventListener('touchstart', function(e) { e.stopPropagation(); });
+  pressureSlider.addEventListener('touchmove', function(e) { e.stopPropagation(); });
+  pressureSlider.addEventListener('touchend', function(e) { e.stopPropagation(); });
+
+  // ── Selection context menu handlers ──
+  document.getElementById('sel-copy-btn').addEventListener('pointerdown', function(e) {
+    e.stopPropagation();
+    if (selectedIndices.length === 0) return;
+    var copies = [];
+    var bounds = getSelectionBounds();
+    var offset = 20;
+    for (var i = 0; i < selectedIndices.length; i++) {
+      var s = strokes[selectedIndices[i]];
+      var copy = JSON.parse(JSON.stringify(s));
+      if (copy.tool === 'shape') {
+        copy.p1.x += offset; copy.p1.y += offset;
+        copy.p2.x += offset; copy.p2.y += offset;
+        copy.bounds = shapeBounds([copy.p1, copy.p2]);
+      } else if (copy.points) {
+        for (var j = 0; j < copy.points.length; j++) {
+          copy.points[j].x += offset;
+          copy.points[j].y += offset;
+        }
+      }
+      copies.push(copy);
+    }
+    var newIndices = [];
+    for (var k = 0; k < copies.length; k++) {
+      strokes.push(copies[k]);
+      newIndices.push(strokes.length - 1);
+    }
+    selectedIndices = newIndices;
+    redoStack = [];
+    updateUndoRedo();
+    queueSave();
+    redrawAll();
+    showSelCtxMenu();
+  });
+
+  document.getElementById('sel-delete-btn').addEventListener('pointerdown', function(e) {
+    e.stopPropagation();
+    if (selectedIndices.length === 0) return;
+    selectedIndices.sort(function(a, b) { return b - a; });
+    for (var i = 0; i < selectedIndices.length; i++) {
+      strokes.splice(selectedIndices[i], 1);
+    }
+    selectedIndices = [];
+    redoStack = [];
+    updateUndoRedo();
+    hideSelCtxMenu();
+    queueSave();
+    redrawAll();
+  });
+
+  // Build custom color swatches on init
+  rebuildCustomSwatches();
 })();
 </script>
 </body>
