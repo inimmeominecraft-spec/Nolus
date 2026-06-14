@@ -676,10 +676,10 @@ html, body {
   opacity: 0;
   transition: opacity 0.25s ease;
 }
-#edge-glow-top { top: 0; left: 0; right: 0; height: 30px; background: linear-gradient(to bottom, rgba(120, 255, 170, 0.25), transparent); }
-#edge-glow-bottom { bottom: 0; left: 0; right: 0; height: 30px; background: linear-gradient(to top, rgba(120, 255, 170, 0.25), transparent); }
-#edge-glow-left { top: 0; bottom: 0; left: 0; width: 30px; background: linear-gradient(to right, rgba(120, 255, 170, 0.25), transparent); }
-#edge-glow-right { top: 0; bottom: 0; right: 0; width: 30px; background: linear-gradient(to left, rgba(120, 255, 170, 0.25), transparent); }
+#edge-glow-top { top: 0; left: 30px; right: 30px; height: 30px; background: linear-gradient(to bottom, rgba(120, 255, 170, 0.25), transparent); }
+#edge-glow-bottom { bottom: 0; left: 30px; right: 30px; height: 30px; background: linear-gradient(to top, rgba(120, 255, 170, 0.25), transparent); }
+#edge-glow-left { top: 30px; bottom: 30px; left: 0; width: 30px; background: linear-gradient(to right, rgba(120, 255, 170, 0.25), transparent); }
+#edge-glow-right { top: 30px; bottom: 30px; right: 0; width: 30px; background: linear-gradient(to left, rgba(120, 255, 170, 0.25), transparent); }
 .edge-glow.pulse { animation: edgePulse 0.6s ease-in-out; }
 @keyframes edgePulse { 0%,100% { opacity: inherit; } 50% { opacity: 0.8; } }
 </style>
@@ -926,18 +926,25 @@ if (!canvasId) {
   // Shape snapping state
   var holdTimer = null;
   var holdScreenAnchor = null;
-  var selectedShapeIndex = -1;
-  var resizeDragHandle = -1;
-  var resizeOrigBounds = null;
-  var resizeOrigP1 = null;
-  var resizeOrigP2 = null;
-  var resizeOrigTri = null;
   var snapAnimating = false;
+  var penIsDown = false;
+  var snapDragActive = false;
+  var snapDragAnchor = null;
+  var snapDragShapeIdx = -1;
+  var snapDragOrigBounds = null;
+  var snapDragOrigP1 = null;
+  var snapDragOrigP2 = null;
+  var snapDragOrigTri = null;
 
   // Edge glow state
   var edgeGlowEls = null;
   var isPanning = false;
   var edgeGlowActive = {top: false, right: false, bottom: false, left: false};
+
+  // Momentum scrolling state
+  var momentumVel = {x: 0, y: 0};
+  var momentumAnimId = null;
+  var panHistory = [];
 
   var dpr = window.devicePixelRatio || 1;
 
@@ -982,6 +989,7 @@ if (!canvasId) {
       if (s.p1) data.p1 = s.p1;
       if (s.p2) data.p2 = s.p2;
       if (s.triPoints) data.triPoints = s.triPoints;
+      if (s.arcCenter) { data.arcCenter = s.arcCenter; data.arcRadius = s.arcRadius; data.arcStart = s.arcStart; data.arcEnd = s.arcEnd; data.arcCcw = s.arcCcw; }
     } else {
       data.points = s.points;
     }
@@ -1041,7 +1049,12 @@ if (!canvasId) {
               bounds: s.bounds,
               p1: s.p1 || null,
               p2: s.p2 || null,
-              triPoints: s.triPoints || null
+              triPoints: s.triPoints || null,
+              arcCenter: s.arcCenter || null,
+              arcRadius: s.arcRadius || 0,
+              arcStart: s.arcStart || 0,
+              arcEnd: s.arcEnd || 0,
+              arcCcw: s.arcCcw || false
             });
           } else {
             strokes.push({
@@ -1440,11 +1453,6 @@ if (!canvasId) {
     // Composite stroke layer onto display
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(drawLayer, 0, 0);
-
-    // Draw resize handles for selected shape
-    if (selectedShapeIndex >= 0 && selectedShapeIndex < strokes.length && strokes[selectedShapeIndex].tool === 'shape') {
-      drawResizeHandles(strokes[selectedShapeIndex]);
-    }
   }
 
   // ── Stroke rendering ──
@@ -1697,6 +1705,53 @@ if (!canvasId) {
     return ptDist(p, {x: a.x+t*dx, y: a.y+t*dy});
   }
 
+  function detectCorners(resampled) {
+    var w = Math.max(4, Math.floor(resampled.length / 10));
+    var angleData = [];
+    for (var i = w; i < resampled.length - w; i++) {
+      var before = resampled[i-w], at = resampled[i], after = resampled[i+w];
+      var v1x = before.x-at.x, v1y = before.y-at.y;
+      var v2x = after.x-at.x, v2y = after.y-at.y;
+      var dot = v1x*v2x + v1y*v2y;
+      var cross = v1x*v2y - v1y*v2x;
+      angleData.push({idx: i, angle: Math.abs(Math.atan2(cross, dot))});
+    }
+    var threshold = Math.PI * 0.65;
+    var corners = [];
+    for (var i = 1; i < angleData.length - 1; i++) {
+      if (angleData[i].angle < threshold &&
+          angleData[i].angle <= angleData[i-1].angle &&
+          angleData[i].angle <= angleData[i+1].angle) {
+        if (corners.length === 0 || angleData[i].idx - corners[corners.length-1] > resampled.length / 8) {
+          corners.push(angleData[i].idx);
+        }
+      }
+    }
+    return corners;
+  }
+
+  function fitCircle(pts) {
+    var n = pts.length;
+    var sx = 0, sy = 0;
+    for (var i = 0; i < n; i++) { sx += pts[i].x; sy += pts[i].y; }
+    var mx = sx / n, my = sy / n;
+    var suu = 0, suv = 0, svv = 0, suuu = 0, svvv = 0, suvv = 0, svuu = 0;
+    for (var i = 0; i < n; i++) {
+      var u = pts[i].x - mx, v = pts[i].y - my;
+      suu += u*u; suv += u*v; svv += v*v;
+      suuu += u*u*u; svvv += v*v*v; suvv += u*v*v; svuu += v*u*u;
+    }
+    var det = suu*svv - suv*suv;
+    if (Math.abs(det) < 1e-10) return null;
+    var uc = (0.5*(suuu+suvv)*svv - 0.5*(svvv+svuu)*suv) / det;
+    var vc = (0.5*(svvv+svuu)*suu - 0.5*(suuu+suvv)*suv) / det;
+    var cx = uc + mx, cy = vc + my;
+    var r = 0;
+    for (var i = 0; i < n; i++) r += Math.sqrt((pts[i].x-cx)*(pts[i].x-cx) + (pts[i].y-cy)*(pts[i].y-cy));
+    r /= n;
+    return {cx: cx, cy: cy, r: r};
+  }
+
   function recognizeShape(rawPoints) {
     if (rawPoints.length < 8) return null;
     var pts = rawPoints.map(function(p) { return {x: p.x, y: p.y}; });
@@ -1709,7 +1764,7 @@ if (!canvasId) {
     var startEnd = ptDist(resampled[0], resampled[resampled.length-1]);
     var isClosed = startEnd < totalLen * 0.2;
 
-    // Line
+    // Open shapes
     if (!isClosed) {
       var maxDev = 0;
       var first = resampled[0], last = resampled[resampled.length-1];
@@ -1720,10 +1775,43 @@ if (!canvasId) {
       if (span > 20 && maxDev / span < 0.1) {
         return {type: 'line', bounds: bb, p1: {x:first.x, y:first.y}, p2: {x:last.x, y:last.y}};
       }
+      // Arc detection: fit circle, check if points lie on it
+      if (span > 20) {
+        var fc = fitCircle(resampled);
+        if (fc && fc.r > 10) {
+          var maxArcDev = 0;
+          for (var i = 0; i < resampled.length; i++) {
+            var d = Math.abs(ptDist(resampled[i], {x:fc.cx, y:fc.cy}) - fc.r);
+            if (d > maxArcDev) maxArcDev = d;
+          }
+          if (maxArcDev / fc.r < 0.15) {
+            var startAngle = Math.atan2(first.y - fc.cy, first.x - fc.cx);
+            var endAngle = Math.atan2(last.y - fc.cy, last.x - fc.cx);
+            var midPt = resampled[Math.floor(resampled.length/2)];
+            var midAngle = Math.atan2(midPt.y - fc.cy, midPt.x - fc.cx);
+            var ccw = false;
+            var diff1 = (midAngle - startAngle + 4*Math.PI) % (2*Math.PI);
+            var diff2 = (endAngle - startAngle + 4*Math.PI) % (2*Math.PI);
+            if (diff1 > diff2) ccw = true;
+            return {type: 'arc', bounds: bb, arcCenter: {x:fc.cx, y:fc.cy}, arcRadius: fc.r, arcStart: startAngle, arcEnd: endAngle, arcCcw: ccw};
+          }
+        }
+      }
       return null;
     }
 
-    // Circle / Ellipse
+    // Closed shapes: detect corners first (before circle check)
+    var corners = detectCorners(resampled);
+
+    if (corners.length === 3) {
+      var triPts = corners.map(function(idx) { return {x: resampled[idx].x, y: resampled[idx].y}; });
+      return {type: 'triangle', bounds: bb, triPoints: triPts};
+    }
+    if (corners.length >= 4) {
+      return {type: 'rectangle', bounds: bb};
+    }
+
+    // No sharp corners → circle / ellipse
     var cx = bb.x + bb.w/2, cy = bb.y + bb.h/2;
     var hw = bb.w/2 || 1, hh = bb.h/2 || 1;
     var dists = resampled.map(function(p) {
@@ -1737,42 +1825,10 @@ if (!canvasId) {
     for (var i = 0; i < dists.length; i++) variance += (dists[i]-avgD)*(dists[i]-avgD);
     variance /= dists.length;
 
-    if (variance < 0.06) {
+    if (variance < 0.08) {
       var ar = bb.w / Math.max(1, bb.h);
       if (ar > 0.75 && ar < 1.33) return {type: 'circle', bounds: bb};
       return {type: 'ellipse', bounds: bb};
-    }
-
-    // Corner detection for triangle / rectangle
-    var w = Math.max(3, Math.floor(resampled.length / 12));
-    var angleData = [];
-    for (var i = w; i < resampled.length - w; i++) {
-      var before = resampled[i-w], at = resampled[i], after = resampled[i+w];
-      var v1x = before.x-at.x, v1y = before.y-at.y;
-      var v2x = after.x-at.x, v2y = after.y-at.y;
-      var dot = v1x*v2x + v1y*v2y;
-      var cross = v1x*v2y - v1y*v2x;
-      angleData.push({idx: i, angle: Math.abs(Math.atan2(cross, dot))});
-    }
-
-    var threshold = Math.PI * 0.35;
-    var corners = [];
-    for (var i = 1; i < angleData.length - 1; i++) {
-      if (angleData[i].angle < threshold &&
-          angleData[i].angle <= angleData[i-1].angle &&
-          angleData[i].angle <= angleData[i+1].angle) {
-        if (corners.length === 0 || angleData[i].idx - corners[corners.length-1] > resampled.length / 8) {
-          corners.push(angleData[i].idx);
-        }
-      }
-    }
-
-    if (corners.length === 3) {
-      var triPts = corners.map(function(idx) { return {x: resampled[idx].x, y: resampled[idx].y}; });
-      return {type: 'triangle', bounds: bb, triPoints: triPts};
-    }
-    if (corners.length === 4) {
-      return {type: 'rectangle', bounds: bb};
     }
     return null;
   }
@@ -1811,84 +1867,67 @@ if (!canvasId) {
         c.lineTo(tp[2].x, tp[2].y);
         c.closePath();
         break;
+      case 'arc':
+        c.arc(stroke.arcCenter.x, stroke.arcCenter.y, Math.max(1, stroke.arcRadius), stroke.arcStart, stroke.arcEnd, stroke.arcCcw);
+        break;
     }
     c.stroke();
   }
 
-  // ── Resize Handles ──
+  // ── Post-snap drag resize ──
 
-  function getHandlePositions(bounds) {
-    var b = bounds;
-    return [
-      {x: b.x, y: b.y},
-      {x: b.x+b.w/2, y: b.y},
-      {x: b.x+b.w, y: b.y},
-      {x: b.x+b.w, y: b.y+b.h/2},
-      {x: b.x+b.w, y: b.y+b.h},
-      {x: b.x+b.w/2, y: b.y+b.h},
-      {x: b.x, y: b.y+b.h},
-      {x: b.x, y: b.y+b.h/2}
-    ];
-  }
+  function resizeSnapDragShape(worldX, worldY) {
+    var shape = strokes[snapDragShapeIdx];
+    if (!shape) return;
+    var dx = worldX - snapDragAnchor.x;
+    var dy = worldY - snapDragAnchor.y;
+    var ob = snapDragOrigBounds;
 
-  function drawResizeHandles(shape) {
-    var handles = getHandlePositions(shape.bounds);
-    var hr = 5 / view.scale;
-    var lw = 1.5 / view.scale;
-    setWorldTransform();
-    for (var i = 0; i < handles.length; i++) {
-      ctx.beginPath();
-      ctx.arc(handles[i].x, handles[i].y, hr, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff';
-      ctx.fill();
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = lw;
-      ctx.stroke();
-    }
-    // Dashed bounding box
-    ctx.setLineDash([4 / view.scale, 4 / view.scale]);
-    ctx.strokeStyle = 'rgba(74, 158, 255, 0.5)';
-    ctx.lineWidth = 1 / view.scale;
-    ctx.strokeRect(shape.bounds.x, shape.bounds.y, shape.bounds.w, shape.bounds.h);
-    ctx.setLineDash([]);
-  }
-
-  function hitTestHandles(worldX, worldY, shape) {
-    var handles = getHandlePositions(shape.bounds);
-    var hitR = 14 / view.scale;
-    for (var i = 0; i < handles.length; i++) {
-      var dx = worldX - handles[i].x, dy = worldY - handles[i].y;
-      if (dx*dx + dy*dy < hitR * hitR) return i;
-    }
-    return -1;
-  }
-
-  function resizeShapeByHandle(shape, handleIdx, worldX, worldY) {
-    var ob = resizeOrigBounds;
-    var dx = worldX - resizeDragStart.x;
-    var dy = worldY - resizeDragStart.y;
-    var nx = ob.x, ny = ob.y, nw = ob.w, nh = ob.h;
-
-    // 0=TL, 1=T, 2=TR, 3=R, 4=BR, 5=B, 6=BL, 7=L
-    if (handleIdx === 0 || handleIdx === 6 || handleIdx === 7) { nx = ob.x + dx; nw = ob.w - dx; }
-    if (handleIdx === 2 || handleIdx === 3 || handleIdx === 4) { nw = ob.w + dx; }
-    if (handleIdx === 0 || handleIdx === 1 || handleIdx === 2) { ny = ob.y + dy; nh = ob.h - dy; }
-    if (handleIdx === 4 || handleIdx === 5 || handleIdx === 6) { nh = ob.h + dy; }
-
-    if (nw < 10) { nw = 10; if (handleIdx === 0 || handleIdx === 6 || handleIdx === 7) nx = ob.x + ob.w - 10; }
-    if (nh < 10) { nh = 10; if (handleIdx === 0 || handleIdx === 1 || handleIdx === 2) ny = ob.y + ob.h - 10; }
-
-    shape.bounds = {x: nx, y: ny, w: nw, h: nh};
-
-    // Remap shape-specific points proportionally
-    if (shape.p1 && resizeOrigP1) {
-      shape.p1 = {x: nx + (resizeOrigP1.x - ob.x) / ob.w * nw, y: ny + (resizeOrigP1.y - ob.y) / ob.h * nh};
-      shape.p2 = {x: nx + (resizeOrigP2.x - ob.x) / ob.w * nw, y: ny + (resizeOrigP2.y - ob.y) / ob.h * nh};
-    }
-    if (shape.triPoints && resizeOrigTri) {
-      shape.triPoints = resizeOrigTri.map(function(p) {
-        return {x: nx + (p.x - ob.x) / ob.w * nw, y: ny + (p.y - ob.y) / ob.h * nh};
+    if (shape.shapeType === 'line') {
+      var d1 = ptDist(snapDragAnchor, snapDragOrigP1);
+      var d2 = ptDist(snapDragAnchor, snapDragOrigP2);
+      if (d1 > d2) {
+        shape.p1 = {x: snapDragOrigP1.x + dx, y: snapDragOrigP1.y + dy};
+        shape.p2 = {x: snapDragOrigP2.x, y: snapDragOrigP2.y};
+      } else {
+        shape.p2 = {x: snapDragOrigP2.x + dx, y: snapDragOrigP2.y + dy};
+        shape.p1 = {x: snapDragOrigP1.x, y: snapDragOrigP1.y};
+      }
+      var pts = [shape.p1, shape.p2];
+      shape.bounds = shapeBounds(pts);
+    } else if (shape.shapeType === 'circle' || shape.shapeType === 'ellipse') {
+      var cx = ob.x + ob.w/2, cy = ob.y + ob.h/2;
+      var origR = Math.max(ob.w, ob.h) / 2;
+      var dragDist = Math.sqrt(dx*dx + dy*dy);
+      var sign = (dx * (worldX - cx) + dy * (worldY - cy)) > 0 ? 1 : -1;
+      var newR = Math.max(10, origR + sign * dragDist);
+      if (shape.shapeType === 'circle') {
+        shape.bounds = {x: cx - newR, y: cy - newR, w: newR*2, h: newR*2};
+      } else {
+        var rx = Math.max(10, ob.w/2 + Math.abs(dx) * (dx > 0 ? 1 : -1));
+        var ry = Math.max(10, ob.h/2 + Math.abs(dy) * (dy > 0 ? 1 : -1));
+        shape.bounds = {x: cx - rx, y: cy - ry, w: rx*2, h: ry*2};
+      }
+    } else if (shape.shapeType === 'rectangle') {
+      var cx = ob.x + ob.w/2, cy = ob.y + ob.h/2;
+      var nw = Math.max(10, ob.w + dx * (snapDragAnchor.x > cx ? 2 : -2));
+      var nh = Math.max(10, ob.h + dy * (snapDragAnchor.y > cy ? 2 : -2));
+      shape.bounds = {x: cx - nw/2, y: cy - nh/2, w: nw, h: nh};
+    } else if (shape.shapeType === 'triangle') {
+      var cx = (snapDragOrigTri[0].x + snapDragOrigTri[1].x + snapDragOrigTri[2].x) / 3;
+      var cy = (snapDragOrigTri[0].y + snapDragOrigTri[1].y + snapDragOrigTri[2].y) / 3;
+      var origDist = Math.sqrt((snapDragAnchor.x-cx)*(snapDragAnchor.x-cx) + (snapDragAnchor.y-cy)*(snapDragAnchor.y-cy)) || 1;
+      var curDist = Math.sqrt((worldX-cx)*(worldX-cx) + (worldY-cy)*(worldY-cy));
+      var scale = Math.max(0.1, curDist / origDist);
+      shape.triPoints = snapDragOrigTri.map(function(p) {
+        return {x: cx + (p.x - cx) * scale, y: cy + (p.y - cy) * scale};
       });
+      shape.bounds = shapeBounds(shape.triPoints);
+    } else if (shape.shapeType === 'arc') {
+      var c = shape.arcCenter;
+      var origR = snapDragOrigBounds._arcRadius || shape.arcRadius;
+      var curDist = Math.sqrt((worldX-c.x)*(worldX-c.x) + (worldY-c.y)*(worldY-c.y));
+      shape.arcRadius = Math.max(10, curDist);
     }
   }
 
@@ -1941,7 +1980,12 @@ if (!canvasId) {
       bounds: result.bounds,
       p1: result.p1 || null,
       p2: result.p2 || null,
-      triPoints: result.triPoints || null
+      triPoints: result.triPoints || null,
+      arcCenter: result.arcCenter || null,
+      arcRadius: result.arcRadius || 0,
+      arcStart: result.arcStart || 0,
+      arcEnd: result.arcEnd || 0,
+      arcCcw: result.arcCcw || false
     };
 
     var freehand = {
@@ -1951,6 +1995,7 @@ if (!canvasId) {
       points: currentStroke.points.slice()
     };
 
+    var anchorPos = screenToWorld(lastPenX, lastPenY);
     isDrawing = false;
     currentStroke = null;
     clearTimeout(holdTimer);
@@ -1960,15 +2005,26 @@ if (!canvasId) {
       strokes.push(shape);
       redoStack = [];
       updateUndoRedo();
-      saveStrokeToCloud(shape);
-      selectedShapeIndex = strokes.length - 1;
+
+      if (penIsDown) {
+        snapDragActive = true;
+        snapDragShapeIdx = strokes.length - 1;
+        snapDragAnchor = anchorPos;
+        snapDragOrigBounds = {x: shape.bounds.x, y: shape.bounds.y, w: shape.bounds.w, h: shape.bounds.h};
+        if (shape.p1) snapDragOrigP1 = {x: shape.p1.x, y: shape.p1.y};
+        if (shape.p2) snapDragOrigP2 = {x: shape.p2.x, y: shape.p2.y};
+        if (shape.triPoints) snapDragOrigTri = shape.triPoints.map(function(p) { return {x:p.x, y:p.y}; });
+        if (shape.arcRadius) snapDragOrigBounds._arcRadius = shape.arcRadius;
+      } else {
+        saveStrokeToCloud(shape);
+      }
       redrawAll();
     });
   }
 
   // ── Edge Glow ──
 
-  function updateEdgeGlow() {
+  function updateEdgeGlow(overscrollX, overscrollY) {
     if (!edgeGlowEls) {
       edgeGlowEls = {
         top: document.getElementById('edge-glow-top'),
@@ -1979,18 +2035,23 @@ if (!canvasId) {
     }
     var visW = window.innerWidth / view.scale;
     var visH = window.innerHeight / view.scale;
-    var threshold = 1;
+    var deadZone = 30;
+    overscrollX = overscrollX || 0;
+    overscrollY = overscrollY || 0;
+
+    // Disable glow entirely when fully zoomed out
+    var fullyVisible = visW >= CANVAS_W && visH >= CANVAS_H;
 
     var now = {
-      top: view.y <= threshold,
-      bottom: view.y + visH >= CANVAS_H - threshold,
-      left: view.x <= threshold,
-      right: view.x + visW >= CANVAS_W - threshold
+      top: !fullyVisible && view.y <= 0 && isPanning && overscrollY < -deadZone,
+      bottom: !fullyVisible && view.y + visH >= CANVAS_H && isPanning && overscrollY > deadZone,
+      left: !fullyVisible && view.x <= 0 && isPanning && overscrollX < -deadZone,
+      right: !fullyVisible && view.x + visW >= CANVAS_W && isPanning && overscrollX > deadZone
     };
 
     for (var side in now) {
       var el = edgeGlowEls[side];
-      if (now[side] && isPanning) {
+      if (now[side]) {
         if (!edgeGlowActive[side]) {
           el.style.opacity = '0.7';
           edgeGlowActive[side] = true;
@@ -2164,7 +2225,6 @@ if (!canvasId) {
 
   function undo() {
     if (strokes.length === 0) return;
-    selectedShapeIndex = -1;
     redoStack.push(strokes.pop());
     if (redoStack.length > 50) redoStack.shift();
     redrawAll();
@@ -2174,7 +2234,6 @@ if (!canvasId) {
 
   function redo() {
     if (redoStack.length === 0) return;
-    selectedShapeIndex = -1;
     strokes.push(redoStack.pop());
     redrawAll();
     updateUndoRedo();
@@ -2193,31 +2252,11 @@ if (!canvasId) {
     if (e.button !== 0) return;
     if (snapAnimating) return;
     e.preventDefault();
+    penIsDown = true;
 
     if (menuVisible) {
       if (!floatMenu.contains(e.target)) dismissMenu();
       if (floatMenu.contains(e.target)) return;
-    }
-
-    var pos = screenToWorld(e.clientX, e.clientY);
-
-    // Check resize handles on selected shape
-    if (selectedShapeIndex >= 0 && selectedShapeIndex < strokes.length) {
-      var shape = strokes[selectedShapeIndex];
-      var hIdx = hitTestHandles(pos.x, pos.y, shape);
-      if (hIdx >= 0) {
-        canvas.setPointerCapture(e.pointerId);
-        resizeDragHandle = hIdx;
-        resizeDragStart = {x: pos.x, y: pos.y};
-        resizeOrigBounds = {x: shape.bounds.x, y: shape.bounds.y, w: shape.bounds.w, h: shape.bounds.h};
-        resizeOrigP1 = shape.p1 ? {x: shape.p1.x, y: shape.p1.y} : null;
-        resizeOrigP2 = shape.p2 ? {x: shape.p2.x, y: shape.p2.y} : null;
-        resizeOrigTri = shape.triPoints ? shape.triPoints.map(function(p) { return {x:p.x, y:p.y}; }) : null;
-        return;
-      }
-      // Tap outside handles — deselect
-      selectedShapeIndex = -1;
-      redrawAll();
     }
 
     canvas.setPointerCapture(e.pointerId);
@@ -2259,11 +2298,11 @@ if (!canvasId) {
     lastPenX = e.clientX;
     lastPenY = e.clientY;
 
-    // Resize drag
-    if (resizeDragHandle >= 0 && selectedShapeIndex >= 0) {
+    // Post-snap drag resize
+    if (snapDragActive) {
       e.preventDefault();
       var pos = screenToWorld(e.clientX, e.clientY);
-      resizeShapeByHandle(strokes[selectedShapeIndex], resizeDragHandle, pos.x, pos.y);
+      resizeSnapDragShape(pos.x, pos.y);
       redrawAll();
       return;
     }
@@ -2317,14 +2356,18 @@ if (!canvasId) {
 
   function onPointerUp(e) {
     if (e.pointerType !== 'pen') return;
+    penIsDown = false;
+
     if (snapAnimating) return;
 
-    // Finish resize drag
-    if (resizeDragHandle >= 0 && selectedShapeIndex >= 0) {
+    // Finish post-snap drag resize
+    if (snapDragActive) {
       e.preventDefault();
-      resizeDragHandle = -1;
-      resizeDragStart = null;
+      snapDragActive = false;
+      snapDragAnchor = null;
+      snapDragShapeIdx = -1;
       saveAllStrokesToCloud();
+      redrawAll();
       return;
     }
 
@@ -2357,12 +2400,15 @@ if (!canvasId) {
 
   function onPointerCancel(e) {
     if (e.pointerType !== 'pen') return;
+    penIsDown = false;
     isDrawing = false;
     currentStroke = null;
     clearTimeout(holdTimer);
     holdTimer = null;
     holdScreenAnchor = null;
-    resizeDragHandle = -1;
+    snapDragActive = false;
+    snapDragAnchor = null;
+    snapDragShapeIdx = -1;
     hideEraserCursor();
   }
 
@@ -2379,9 +2425,85 @@ if (!canvasId) {
     return false;
   }
 
+  function cancelMomentum() {
+    if (momentumAnimId) {
+      cancelAnimationFrame(momentumAnimId);
+      momentumAnimId = null;
+    }
+    momentumVel = {x: 0, y: 0};
+    panHistory = [];
+  }
+
+  function startMomentum() {
+    var now = performance.now();
+    // Compute velocity from recent pan history (last ~100ms)
+    var vx = 0, vy = 0, count = 0;
+    for (var i = panHistory.length - 1; i >= 1; i--) {
+      var dt = panHistory[i].t - panHistory[i-1].t;
+      if (now - panHistory[i].t > 100) break;
+      if (dt > 0) {
+        vx += (panHistory[i].x - panHistory[i-1].x) / dt;
+        vy += (panHistory[i].y - panHistory[i-1].y) / dt;
+        count++;
+      }
+    }
+    if (count > 0) { vx /= count; vy /= count; }
+    var speed = Math.sqrt(vx*vx + vy*vy);
+    if (speed < 0.3) { panHistory = []; return; }
+
+    momentumVel = {x: vx, y: vy};
+    var friction = 0.95;
+    var lastFrame = performance.now();
+
+    function momentumFrame() {
+      var now = performance.now();
+      var dt = now - lastFrame;
+      lastFrame = now;
+      if (dt > 50) dt = 50;
+
+      view.x -= momentumVel.x * dt / view.scale;
+      view.y -= momentumVel.y * dt / view.scale;
+
+      var preClampX = view.x, preClampY = view.y;
+      clampView();
+      var hitEdge = (view.x !== preClampX || view.y !== preClampY);
+
+      momentumVel.x *= friction;
+      momentumVel.y *= friction;
+
+      var curSpeed = Math.sqrt(momentumVel.x*momentumVel.x + momentumVel.y*momentumVel.y);
+
+      if (hitEdge) {
+        isPanning = true;
+        var osX = (preClampX - view.x) * view.scale;
+        var osY = (preClampY - view.y) * view.scale;
+        updateEdgeGlow(osX, osY);
+        if (Math.abs(osX) > 30 || Math.abs(osY) > 30) {
+          if (osX < -30) pulseEdgeGlow('left');
+          if (osX > 30) pulseEdgeGlow('right');
+          if (osY < -30) pulseEdgeGlow('top');
+          if (osY > 30) pulseEdgeGlow('bottom');
+        }
+        momentumVel = {x: 0, y: 0};
+      }
+
+      redrawAll();
+
+      if (curSpeed < 0.05 || hitEdge) {
+        momentumAnimId = null;
+        isPanning = false;
+        updateEdgeGlow(0, 0);
+        return;
+      }
+      momentumAnimId = requestAnimationFrame(momentumFrame);
+    }
+    momentumAnimId = requestAnimationFrame(momentumFrame);
+  }
+
   function onTouchStart(e) {
     e.preventDefault();
     if (hasStylusTouch(e)) return;
+    cancelMomentum();
 
     if (e.touches.length === 1 && !pinchState) {
       var t = e.touches[0];
@@ -2426,19 +2548,22 @@ if (!canvasId) {
       var dx = t.clientX - dragState.startX;
       var dy = t.clientY - dragState.startY;
       if (Math.abs(dx) > 8 || Math.abs(dy) > 8) dragState.moved = true;
-      var prevX = view.x, prevY = view.y;
-      view.x = dragState.viewX - dx / view.scale;
-      view.y = dragState.viewY - dy / view.scale;
+
+      // Track pan velocity
+      panHistory.push({x: t.clientX, y: t.clientY, t: performance.now()});
+      if (panHistory.length > 10) panHistory.shift();
+
+      var desiredX = dragState.viewX - dx / view.scale;
+      var desiredY = dragState.viewY - dy / view.scale;
+      view.x = desiredX;
+      view.y = desiredY;
       clampView();
       isPanning = true;
-      // Pulse if trying to pan past edge
-      var visW = window.innerWidth / view.scale;
-      var visH = window.innerHeight / view.scale;
-      if (dragState.viewY - dy / view.scale < 0 && view.y <= 0) pulseEdgeGlow('top');
-      if (dragState.viewY - dy / view.scale + visH > CANVAS_H && view.y + visH >= CANVAS_H) pulseEdgeGlow('bottom');
-      if (dragState.viewX - dx / view.scale < 0 && view.x <= 0) pulseEdgeGlow('left');
-      if (dragState.viewX - dx / view.scale + visW > CANVAS_W && view.x + visW >= CANVAS_W) pulseEdgeGlow('right');
-      updateEdgeGlow();
+
+      // Overscroll = how far past edge the user is trying to go (in screen px)
+      var overscrollX = (desiredX - view.x) * view.scale;
+      var overscrollY = (desiredY - view.y) * view.scale;
+      updateEdgeGlow(overscrollX, overscrollY);
       redrawAll();
     }
 
@@ -2458,11 +2583,15 @@ if (!canvasId) {
       var newScale = Math.max(getMinScale(), Math.min(4, pinchState.startScale * (dist / pinchState.startDist)));
 
       view.scale = newScale;
-      view.x = pinchState.worldCX - cx / newScale;
-      view.y = pinchState.worldCY - cy / newScale;
+      var desiredX2 = pinchState.worldCX - cx / newScale;
+      var desiredY2 = pinchState.worldCY - cy / newScale;
+      view.x = desiredX2;
+      view.y = desiredY2;
       clampView();
       isPanning = true;
-      updateEdgeGlow();
+      var osX2 = (desiredX2 - view.x) * view.scale;
+      var osY2 = (desiredY2 - view.y) * view.scale;
+      updateEdgeGlow(osX2, osY2);
       redrawAll();
     }
   }
@@ -2496,9 +2625,13 @@ if (!canvasId) {
     }
 
     if (e.touches.length === 0) {
-      // Fade out edge glow when panning stops
-      isPanning = false;
-      updateEdgeGlow();
+      // Start momentum scrolling if there was a swipe
+      if (dragState && dragState.moved) {
+        startMomentum();
+      } else {
+        isPanning = false;
+        updateEdgeGlow(0, 0);
+      }
 
       // Double-tap detection
       if (dragState && !dragState.moved) {
@@ -2507,8 +2640,6 @@ if (!canvasId) {
           var now = performance.now();
           var tapDist = Math.hypot(dragState.startX - lastTap.x, dragState.startY - lastTap.y);
           if (now - lastTap.time < 350 && tapDist < 40) {
-            // Double tap detected — deselect any shape first
-            if (selectedShapeIndex >= 0) { selectedShapeIndex = -1; redrawAll(); }
             currentTool = (currentTool === 'eraser') ? 'pen' : 'eraser';
             showToolIndicator(dragState.startX, dragState.startY);
             syncMenuState();
