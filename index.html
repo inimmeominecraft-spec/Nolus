@@ -1662,12 +1662,35 @@ if (!canvasId) {
 
     c.globalAlpha = 1;
     c.globalCompositeOperation = 'source-over';
+
     if (stroke.tool === 'dotted') {
-      c.setLineDash([stroke.baseSize * 2, stroke.baseSize * 3]);
-    } else {
+      // Draw dotted as single continuous path (like GoodNotes — dash spacing depends on line length, not speed)
+      var avgPressure = 0;
+      for (var pi = 0; pi < pts.length; pi++) avgPressure += (pts[pi].pressure || 0.5);
+      avgPressure /= pts.length;
+      var lw = getStrokeWidth(avgPressure, stroke.baseSize, stroke.tool, stroke.pressureSens);
+      var dashLen = Math.max(4, lw * 1.5);
+      var gapLen = Math.max(4, lw * 2.5);
+      c.setLineDash([dashLen, gapLen]);
+      c.lineWidth = lw;
+      c.strokeStyle = stroke.color;
+      c.beginPath();
+      c.moveTo(pts[0].x, pts[0].y);
+      for (var i = 1; i < pts.length; i++) {
+        if (i === 1) {
+          c.lineTo(pts[i].x, pts[i].y);
+        } else {
+          var mx = (pts[i-1].x + pts[i].x) / 2;
+          var my = (pts[i-1].y + pts[i].y) / 2;
+          c.quadraticCurveTo(pts[i-1].x, pts[i-1].y, mx, my);
+        }
+      }
+      c.stroke();
       c.setLineDash([]);
+      return;
     }
 
+    c.setLineDash([]);
     c.strokeStyle = stroke.color;
 
     for (var i = 1; i < pts.length; i++) {
@@ -1691,7 +1714,6 @@ if (!canvasId) {
 
     c.globalAlpha = 1;
     c.globalCompositeOperation = 'source-over';
-    c.setLineDash([]);
   }
 
   function renderEraserStroke(c, stroke) {
@@ -1743,8 +1765,11 @@ if (!canvasId) {
     drawCtx.globalAlpha = 1;
     drawCtx.globalCompositeOperation = 'source-over';
     if (stroke.tool === 'dotted') {
-      ctx.setLineDash([stroke.baseSize * 2, stroke.baseSize * 3]);
-      drawCtx.setLineDash([stroke.baseSize * 2, stroke.baseSize * 3]);
+      var dlw = stroke.baseSize;
+      var ddash = Math.max(4, dlw * 1.5);
+      var dgap = Math.max(4, dlw * 2.5);
+      ctx.setLineDash([ddash, dgap]);
+      drawCtx.setLineDash([ddash, dgap]);
     } else {
       ctx.setLineDash([]);
       drawCtx.setLineDash([]);
