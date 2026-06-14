@@ -45,6 +45,17 @@ html, body {
   background: #1a1a1a;
 }
 
+/* Pen/dotted cursor */
+#pen-cursor {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 100;
+  display: none;
+  transform: translate(-50%, -50%);
+  opacity: 0.7;
+}
+
 /* Eraser cursor */
 #eraser-cursor {
   position: fixed;
@@ -721,12 +732,18 @@ html, body {
   margin-top: -5.5px;
 }
 
-/* Color row wrapping */
+/* Color row — fixed 7 slots */
 .fm-colors {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+}
+#hidden-color-picker {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Selection context menu */
@@ -783,9 +800,8 @@ html, body {
     <button class="fm-color" data-color="#4ddb4d" style="background:#4ddb4d"></button>
     <button class="fm-color" data-color="#ffaa33" style="background:#ffaa33"></button>
     <button class="fm-color" data-color="#b366e0" style="background:#b366e0"></button>
-    <div class="fm-custom-wrap">
-      <input type="color" id="custom-color" value="#ff00aa">
-    </div>
+    <button class="fm-color" data-color="#ff00aa" style="background:#ff00aa"></button>
+    <input type="color" id="hidden-color-picker" value="#ffffff">
   </div>
   <div class="fm-divider"></div>
   <div class="fm-row">
@@ -809,11 +825,6 @@ html, body {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 8-6 1-3 6-5-15z"/></svg>
       Select
     </button>
-  </div>
-  <div class="fm-divider"></div>
-  <div class="fm-row fm-pressure">
-    <span class="fm-pressure-label">P</span>
-    <input type="range" id="pressure-slider" min="0" max="100" value="50">
   </div>
   <div class="fm-divider"></div>
   <div class="fm-row">
@@ -842,6 +853,7 @@ html, body {
   <svg id="tool-indicator-icon" viewBox="0 0 24 24"></svg>
 </div>
 
+<div id="pen-cursor"></div>
 <div id="eraser-cursor"></div>
 
 <div id="confirm-dialog">
@@ -1018,14 +1030,26 @@ if (!canvasId) {
 
   function loadCustomColors() {
     try {
-      var c = JSON.parse(localStorage.getItem('drawapp_custom_colors'));
-      if (Array.isArray(c)) return c.slice(0, 12);
+      var c = JSON.parse(localStorage.getItem('drawapp_slot_colors'));
+      if (Array.isArray(c) && c.length === 7) return c;
     } catch(e) {}
-    return [];
+    return ['#ffffff', '#4a9eff', '#ff4d4d', '#4ddb4d', '#ffaa33', '#b366e0', '#ff00aa'];
   }
 
   function saveCustomColors() {
-    localStorage.setItem('drawapp_custom_colors', JSON.stringify(customColors));
+    localStorage.setItem('drawapp_slot_colors', JSON.stringify(customColors));
+  }
+
+  function loadDotSpacing() {
+    try {
+      var s = parseFloat(localStorage.getItem('drawapp_dot_spacing'));
+      if (s > 0 && s <= 5) return s;
+    } catch(e) {}
+    return 1.0;
+  }
+
+  function saveDotSpacing() {
+    localStorage.setItem('drawapp_dot_spacing', String(dotSpacing));
   }
 
   function sliderToSize(sliderVal, isEraser) {
@@ -1094,8 +1118,11 @@ if (!canvasId) {
   // Batch save state
   var batchPending = [];
   var batchTimer = null;
-  var BATCH_SIZE = 10;
-  var BATCH_INTERVAL = 60000;
+  var BATCH_SIZE = 5;
+  var BATCH_INTERVAL = 10000;
+
+  // Dot spacing for dotted tool
+  var dotSpacing = loadDotSpacing();
 
   // Selection tool state
   var selectedIndices = [];
@@ -1143,6 +1170,7 @@ if (!canvasId) {
       timestamp: Date.now()
     };
     if (s.pressureSens !== undefined) data.pressureSens = s.pressureSens;
+    if (s.dotSpacing !== undefined) data.dotSpacing = s.dotSpacing;
     if (s.tool === 'shape') {
       data.shapeType = s.shapeType;
       data.bounds = s.bounds;
@@ -1215,6 +1243,7 @@ if (!canvasId) {
               color: s.color || '#ffffff',
               baseSize: s.baseSize,
               pressureSens: s.pressureSens !== undefined ? s.pressureSens : 0.5,
+              dotSpacing: s.dotSpacing || undefined,
               points: s.points
             });
           }
@@ -1669,8 +1698,9 @@ if (!canvasId) {
       for (var pi = 0; pi < pts.length; pi++) avgPressure += (pts[pi].pressure || 0.5);
       avgPressure /= pts.length;
       var lw = getStrokeWidth(avgPressure, stroke.baseSize, stroke.tool, stroke.pressureSens);
-      var dashLen = Math.max(4, lw * 1.5);
-      var gapLen = Math.max(4, lw * 2.5);
+      var sp = stroke.dotSpacing || 1;
+      var dashLen = Math.max(4, lw * 1.5 * sp);
+      var gapLen = Math.max(4, lw * 2.5 * sp);
       c.setLineDash([dashLen, gapLen]);
       c.lineWidth = lw;
       c.strokeStyle = stroke.color;
@@ -1766,8 +1796,9 @@ if (!canvasId) {
     drawCtx.globalCompositeOperation = 'source-over';
     if (stroke.tool === 'dotted') {
       var dlw = stroke.baseSize;
-      var ddash = Math.max(4, dlw * 1.5);
-      var dgap = Math.max(4, dlw * 2.5);
+      var dsp = stroke.dotSpacing || 1;
+      var ddash = Math.max(4, dlw * 1.5 * dsp);
+      var dgap = Math.max(4, dlw * 2.5 * dsp);
       ctx.setLineDash([ddash, dgap]);
       drawCtx.setLineDash([ddash, dgap]);
     } else {
@@ -2122,15 +2153,26 @@ if (!canvasId) {
 
     // Lasso path
     if (selectionMode === 'lasso' && lassoPoints.length > 2) {
-      ctx.setLineDash([4 / view.scale, 3 / view.scale]);
-      ctx.strokeStyle = 'rgba(74, 158, 255, 0.6)';
-      ctx.lineWidth = 1 / view.scale;
+      // Drawn path (solid)
+      ctx.strokeStyle = 'rgba(74, 158, 255, 0.7)';
+      ctx.lineWidth = 1.5 / view.scale;
+      ctx.setLineDash([]);
       ctx.beginPath();
       ctx.moveTo(lassoPoints[0].x, lassoPoints[0].y);
       for (var j = 1; j < lassoPoints.length; j++) {
         ctx.lineTo(lassoPoints[j].x, lassoPoints[j].y);
       }
-      ctx.closePath();
+      ctx.stroke();
+
+      // Closing line preview (dashed, faded)
+      var lastPt = lassoPoints[lassoPoints.length - 1];
+      var firstPt = lassoPoints[0];
+      ctx.setLineDash([4 / view.scale, 4 / view.scale]);
+      ctx.strokeStyle = 'rgba(74, 158, 255, 0.3)';
+      ctx.lineWidth = 1 / view.scale;
+      ctx.beginPath();
+      ctx.moveTo(lastPt.x, lastPt.y);
+      ctx.lineTo(firstPt.x, firstPt.y);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -2354,6 +2396,36 @@ if (!canvasId) {
     eraserCursor.style.display = 'none';
   }
 
+  // ── Pen/dotted/select cursor ──
+  var penCursor = document.getElementById('pen-cursor');
+
+  function updatePenCursor(sx, sy) {
+    if (currentTool === 'eraser') { hidePenCursor(); return; }
+    if (currentTool === 'pen' || currentTool === 'dotted') {
+      var sz = sizePresets[currentSizeKey] * view.scale;
+      sz = Math.max(3, Math.min(40, sz));
+      penCursor.style.display = 'block';
+      penCursor.style.left = sx + 'px';
+      penCursor.style.top = sy + 'px';
+      penCursor.style.width = sz + 'px';
+      penCursor.style.height = sz + 'px';
+      penCursor.style.background = currentColor;
+    } else if (currentTool === 'select') {
+      penCursor.style.display = 'block';
+      penCursor.style.left = sx + 'px';
+      penCursor.style.top = sy + 'px';
+      penCursor.style.width = '6px';
+      penCursor.style.height = '6px';
+      penCursor.style.background = '#4a9eff';
+    } else {
+      hidePenCursor();
+    }
+  }
+
+  function hidePenCursor() {
+    penCursor.style.display = 'none';
+  }
+
   // ── Tool switch indicator ──
 
   function showToolIndicator(x, y) {
@@ -2378,14 +2450,18 @@ if (!canvasId) {
   }
 
   function showMenu(x, y) {
-    var mw = 280, mh = 140;
+    floatMenu.style.left = '0px';
+    floatMenu.style.top = '0px';
+    floatMenu.classList.add('visible');
+    var rect = floatMenu.getBoundingClientRect();
+    var mw = rect.width || 280;
+    var mh = rect.height || 200;
     var mx = (x || lastPenX) - mw / 2;
     var my = (y || lastPenY) - mh - 30;
     mx = Math.max(10, Math.min(window.innerWidth - mw - 10, mx));
     my = Math.max(10, Math.min(window.innerHeight - mh - 10, my));
     floatMenu.style.left = mx + 'px';
     floatMenu.style.top = my + 'px';
-    floatMenu.classList.add('visible');
     menuVisible = true;
     syncMenuState();
   }
@@ -2424,14 +2500,26 @@ if (!canvasId) {
 
   function showSizePopup(btn, key) {
     var rect = btn.getBoundingClientRect();
-    var isEraser = (key === 'eraser');
-    var val = isEraser ? eraserSize : sizePresets[key];
-
-    sizeSlider.min = 0;
-    sizeSlider.max = 100;
-    sizeSlider.value = sizeToSlider(val, isEraser);
-    sizeLabel.textContent = val;
     sizePopupKey = key;
+
+    if (key === 'pressure') {
+      sizeSlider.min = 0;
+      sizeSlider.max = 100;
+      sizeSlider.value = Math.round(pressureSensitivity * 100);
+      sizeLabel.textContent = Math.round(pressureSensitivity * 100) + '%';
+    } else if (key === 'dotSpacing') {
+      sizeSlider.min = 10;
+      sizeSlider.max = 100;
+      sizeSlider.value = Math.round(dotSpacing * 20);
+      sizeLabel.textContent = dotSpacing.toFixed(1) + 'x';
+    } else {
+      var isEraser = (key === 'eraser');
+      var val = isEraser ? eraserSize : sizePresets[key];
+      sizeSlider.min = 0;
+      sizeSlider.max = 100;
+      sizeSlider.value = sizeToSlider(val, isEraser);
+      sizeLabel.textContent = val;
+    }
 
     sizePopup.style.left = (rect.left + rect.width / 2 - 90) + 'px';
     sizePopup.style.top = (rect.bottom + 8) + 'px';
@@ -2446,16 +2534,26 @@ if (!canvasId) {
   }
 
   sizeSlider.addEventListener('input', function() {
-    var isEraser = (sizePopupKey === 'eraser');
-    var val = sliderToSize(parseInt(sizeSlider.value), isEraser);
-    sizeLabel.textContent = val;
-    if (isEraser) {
-      eraserSize = val;
-      saveEraserSize();
-    } else if (sizePopupKey) {
-      sizePresets[sizePopupKey] = val;
-      saveSizePresets();
-      if (currentSizeKey === sizePopupKey) syncMenuState();
+    if (sizePopupKey === 'pressure') {
+      pressureSensitivity = parseInt(sizeSlider.value) / 100;
+      sizeLabel.textContent = Math.round(pressureSensitivity * 100) + '%';
+      savePressureSensitivity();
+    } else if (sizePopupKey === 'dotSpacing') {
+      dotSpacing = parseInt(sizeSlider.value) / 20;
+      sizeLabel.textContent = dotSpacing.toFixed(1) + 'x';
+      saveDotSpacing();
+    } else {
+      var isEraser = (sizePopupKey === 'eraser');
+      var val = sliderToSize(parseInt(sizeSlider.value), isEraser);
+      sizeLabel.textContent = val;
+      if (isEraser) {
+        eraserSize = val;
+        saveEraserSize();
+      } else if (sizePopupKey) {
+        sizePresets[sizePopupKey] = val;
+        saveSizePresets();
+        if (currentSizeKey === sizePopupKey) syncMenuState();
+      }
     }
   });
 
@@ -2536,6 +2634,7 @@ if (!canvasId) {
       color: currentColor,
       baseSize: sizePresets[currentSizeKey],
       pressureSens: pressureSensitivity,
+      dotSpacing: currentTool === 'dotted' ? dotSpacing : undefined,
       points: [{
         x: pos.x,
         y: pos.y,
@@ -2551,6 +2650,11 @@ if (!canvasId) {
 
     lastPenX = e.clientX;
     lastPenY = e.clientY;
+
+    // Cursor preview (hover)
+    if (!isDrawing && !snapDragActive) {
+      updatePenCursor(e.clientX, e.clientY);
+    }
 
     // Selection tool move
     if (currentTool === 'select') {
@@ -2678,7 +2782,7 @@ if (!canvasId) {
   }
 
   function onPointerLeave(e) {
-    if (e.pointerType === 'pen') hideEraserCursor();
+    if (e.pointerType === 'pen') { hideEraserCursor(); hidePenCursor(); }
   }
 
   // ── Touch: one finger = pan + double-tap, two finger = pinch + tap-for-menu ──
@@ -2920,58 +3024,68 @@ if (!canvasId) {
 
   // ── Menu interactions ──
 
-  floatMenu.querySelectorAll('.fm-color').forEach(function(btn) {
-    btn.addEventListener('pointerdown', function(e) {
-      e.stopPropagation();
-      currentColor = btn.dataset.color;
-      if (currentTool === 'eraser') currentTool = 'pen';
-      syncMenuState();
-    });
-  });
+  // ── Color slots (fixed 7, tap to use, long-press to change) ──
+  var colorSlots = floatMenu.querySelectorAll('.fm-color');
+  var hiddenPicker = document.getElementById('hidden-color-picker');
+  var editingSlotIdx = -1;
 
-  document.getElementById('custom-color').addEventListener('change', function(e) {
-    e.stopPropagation();
-    var color = e.target.value;
-    currentColor = color;
-    if (currentTool === 'eraser') currentTool = 'pen';
-    // Add as custom swatch if not already present
-    if (customColors.indexOf(color) === -1) {
-      customColors.push(color);
-      if (customColors.length > 12) customColors.shift();
-      saveCustomColors();
-      rebuildCustomSwatches();
-    }
-    floatMenu.querySelectorAll('.fm-color').forEach(function(b) { b.classList.remove('active'); });
-    syncMenuState();
-  });
-
-  document.getElementById('custom-color').addEventListener('input', function(e) {
-    e.stopPropagation();
-    currentColor = e.target.value;
-    if (currentTool === 'eraser') currentTool = 'pen';
-    floatMenu.querySelectorAll('.fm-color').forEach(function(b) { b.classList.remove('active'); });
-  });
-
-  function rebuildCustomSwatches() {
-    var row = document.getElementById('color-row');
-    row.querySelectorAll('.fm-color-custom').forEach(function(el) { el.remove(); });
-    var wrap = row.querySelector('.fm-custom-wrap');
-    for (var i = 0; i < customColors.length; i++) {
-      var btn = document.createElement('button');
-      btn.className = 'fm-color fm-color-custom';
-      btn.dataset.color = customColors[i];
-      btn.style.background = customColors[i];
-      btn.addEventListener('pointerdown', (function(color) {
-        return function(ev) {
-          ev.stopPropagation();
-          currentColor = color;
-          if (currentTool === 'eraser') currentTool = 'pen';
-          syncMenuState();
-        };
-      })(customColors[i]));
-      row.insertBefore(btn, wrap);
+  function initColorSlots() {
+    for (var i = 0; i < colorSlots.length; i++) {
+      colorSlots[i].dataset.color = customColors[i];
+      colorSlots[i].style.background = customColors[i];
     }
   }
+
+  colorSlots.forEach(function(btn, idx) {
+    var pressTimer = null;
+    var didLongPress = false;
+
+    btn.addEventListener('pointerdown', function(e) {
+      e.stopPropagation();
+      didLongPress = false;
+      pressTimer = setTimeout(function() {
+        didLongPress = true;
+        editingSlotIdx = idx;
+        hiddenPicker.value = customColors[idx];
+        hiddenPicker.click();
+      }, 400);
+    });
+
+    btn.addEventListener('pointerup', function(e) {
+      e.stopPropagation();
+      clearTimeout(pressTimer);
+      if (!didLongPress) {
+        currentColor = customColors[idx];
+        if (currentTool === 'eraser') currentTool = 'pen';
+        syncMenuState();
+      }
+    });
+
+    btn.addEventListener('pointerleave', function() { clearTimeout(pressTimer); });
+    btn.addEventListener('pointercancel', function() { clearTimeout(pressTimer); });
+  });
+
+  hiddenPicker.addEventListener('input', function(e) {
+    e.stopPropagation();
+    if (editingSlotIdx >= 0) {
+      currentColor = e.target.value;
+      customColors[editingSlotIdx] = e.target.value;
+      colorSlots[editingSlotIdx].dataset.color = e.target.value;
+      colorSlots[editingSlotIdx].style.background = e.target.value;
+      syncMenuState();
+    }
+  });
+
+  hiddenPicker.addEventListener('change', function(e) {
+    e.stopPropagation();
+    if (editingSlotIdx >= 0) {
+      customColors[editingSlotIdx] = e.target.value;
+      currentColor = e.target.value;
+      saveCustomColors();
+      syncMenuState();
+      editingSlotIdx = -1;
+    }
+  });
 
   // Size buttons: tap = select, long-press = adjust
   floatMenu.querySelectorAll('.fm-size').forEach(function(btn) {
@@ -3041,16 +3155,66 @@ if (!canvasId) {
     });
   })();
 
-  // Other tools (pen, dotted, select) — simple tap
-  floatMenu.querySelectorAll('.fm-tool:not([data-tool="eraser"])').forEach(function(btn) {
-    btn.addEventListener('pointerdown', function(e) {
+  // Pen tool: tap = select, long-press = pressure slider
+  (function() {
+    var penBtn = floatMenu.querySelector('[data-tool="pen"]');
+    var pressTimer = null;
+    var didLongPress = false;
+    penBtn.addEventListener('pointerdown', function(e) {
       e.stopPropagation();
-      var newTool = btn.dataset.tool;
-      if (currentTool === 'select' && newTool !== 'select') clearSelection();
-      currentTool = newTool;
-      hideSizePopup();
-      syncMenuState();
+      didLongPress = false;
+      pressTimer = setTimeout(function() {
+        didLongPress = true;
+        showSizePopup(penBtn, 'pressure');
+      }, 400);
     });
+    penBtn.addEventListener('pointerup', function(e) {
+      e.stopPropagation();
+      clearTimeout(pressTimer);
+      if (!didLongPress) {
+        if (currentTool === 'select') clearSelection();
+        currentTool = 'pen';
+        hideSizePopup();
+        syncMenuState();
+      }
+    });
+    penBtn.addEventListener('pointerleave', function() { clearTimeout(pressTimer); });
+    penBtn.addEventListener('pointercancel', function() { clearTimeout(pressTimer); });
+  })();
+
+  // Dotted tool: tap = select, long-press = dot spacing slider
+  (function() {
+    var dotBtn = floatMenu.querySelector('[data-tool="dotted"]');
+    var pressTimer = null;
+    var didLongPress = false;
+    dotBtn.addEventListener('pointerdown', function(e) {
+      e.stopPropagation();
+      didLongPress = false;
+      pressTimer = setTimeout(function() {
+        didLongPress = true;
+        showSizePopup(dotBtn, 'dotSpacing');
+      }, 400);
+    });
+    dotBtn.addEventListener('pointerup', function(e) {
+      e.stopPropagation();
+      clearTimeout(pressTimer);
+      if (!didLongPress) {
+        if (currentTool === 'select') clearSelection();
+        currentTool = 'dotted';
+        hideSizePopup();
+        syncMenuState();
+      }
+    });
+    dotBtn.addEventListener('pointerleave', function() { clearTimeout(pressTimer); });
+    dotBtn.addEventListener('pointercancel', function() { clearTimeout(pressTimer); });
+  })();
+
+  // Select tool: simple tap
+  floatMenu.querySelector('[data-tool="select"]').addEventListener('pointerdown', function(e) {
+    e.stopPropagation();
+    currentTool = 'select';
+    hideSizePopup();
+    syncMenuState();
   });
 
   document.getElementById('undo-btn').addEventListener('pointerdown', function(e) {
@@ -3161,21 +3325,6 @@ if (!canvasId) {
     window.location.reload();
   });
 
-  // ── Pressure slider ──
-  var pressureSlider = document.getElementById('pressure-slider');
-  pressureSlider.value = Math.round(pressureSensitivity * 100);
-  pressureSlider.addEventListener('input', function(e) {
-    e.stopPropagation();
-    pressureSensitivity = parseInt(pressureSlider.value) / 100;
-    savePressureSensitivity();
-  });
-  pressureSlider.addEventListener('pointerdown', function(e) { e.stopPropagation(); });
-  pressureSlider.addEventListener('pointermove', function(e) { e.stopPropagation(); });
-  pressureSlider.addEventListener('pointerup', function(e) { e.stopPropagation(); });
-  pressureSlider.addEventListener('touchstart', function(e) { e.stopPropagation(); });
-  pressureSlider.addEventListener('touchmove', function(e) { e.stopPropagation(); });
-  pressureSlider.addEventListener('touchend', function(e) { e.stopPropagation(); });
-
   // ── Selection context menu handlers ──
   document.getElementById('sel-copy-btn').addEventListener('pointerdown', function(e) {
     e.stopPropagation();
@@ -3226,8 +3375,8 @@ if (!canvasId) {
     redrawAll();
   });
 
-  // Build custom color swatches on init
-  rebuildCustomSwatches();
+  // Init color slots from saved colors
+  initColorSlots();
 })();
 </script>
 </body>
